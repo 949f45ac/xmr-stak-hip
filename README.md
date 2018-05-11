@@ -2,7 +2,14 @@
 
 Proof of concept for a ~3% optimization in the core CryptoNight algorithm. This optimization could theoretically be implemented on every GPU compute platform/framework.
 
-This miner, however, currently works only on Linux. It can run both Nvidia cards and AMD Vega cards. NV cards older than GeForce 10 (Pascal) might not experience a hashrate improvement. AMD cards older than Vega currently have a bug somewhere. **Speedup on Vega cards is only relative to current hash rates on Linux. It is still much less than ANY miner running on Windows.**
+This miner, however, currently works only on Linux. It can run:
+
+- Nvidia GeForce 10 series cards
+
+- AMD Vega cards – **Still slower than Windows**, but faster and more stable than the OpenCL miner on Linux
+
+Older Nvidia cards work as well, but may not experience any speedup.
+Older AMD cards would need to use different inline asm and even then are bugged pending further investigation.
 
 The code is based on xmr-stak-nvidia, i.e. the original CUDA part of xmr-stak. I have ported it to [HIP](https://github.com/ROCm-Developer-Tools/HIP), which is a framework developed by AMD that allows writing GPU compute code that can be built for both Nvidia GPUs (where it will be cross-compiled via CUDA and hence run with barely any performance impact) and AMD GPUs (where it uses the new "ROCm" driver stack).
 
