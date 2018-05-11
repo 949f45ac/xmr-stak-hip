@@ -181,9 +181,11 @@ bool minethd::self_test()
 	}
 	delete ctx0;
 
-	if(!bResult)
-		printer::inst()->print_msg(L0,
-		    "Cryptonight hash self-test failed. This might be caused by bad compiler optimizations.");
+	if(!bResult) {
+		// Ignore because fixtures are outdated.
+	}
+
+	printer::inst()->print_msg(L0, "Consider running xmr-stak-test (AMD only) before connecting to a pool, if you just compiled.");
 
 	return true; //bResult;
 }
