@@ -1,6 +1,6 @@
 ## This repo contains
 
-Proof of concept for a [~3% optimization](#Explanation-of-the-core-algo-optimization) in the core CryptoNight algorithm. This optimization could theoretically be implemented on every GPU compute platform/framework.
+Proof of concept for a [~3% optimization](#explanation-of-the-core-algo-optimization) in the core CryptoNight algorithm. This optimization could theoretically be implemented on every GPU compute platform/framework.
 
 This miner, however, currently works only on Linux. It can run:
 
