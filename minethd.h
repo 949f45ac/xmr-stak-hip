@@ -1,7 +1,7 @@
 #pragma once
 #include <thread>
 #include <atomic>
-#include "nvcc_code/cryptonight.h"
+#include "hip_code/cryptonight.h"
 #include "jconf.h"
 
 class telemetry

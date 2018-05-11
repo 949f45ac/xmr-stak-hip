@@ -12,7 +12,7 @@
 #define ROTL64(x, y) (((x) << (y)) | ((x) >> (64 - (y))))
 #endif
 
-const uint64_t keccakf_rndc[24] = 
+const uint64_t keccakf_rndc_c[24] = 
 {
 	0x0000000000000001, 0x0000000000008082, 0x800000000000808a,
 	0x8000000080008000, 0x000000000000808b, 0x0000000080000001,
@@ -84,7 +84,7 @@ void keccakf(uint64_t st[25], int rounds)
 		}
 
 		//  Iota
-		st[0] ^= keccakf_rndc[round];
+		st[0] ^= keccakf_rndc_c[round];
 	}
 }
 

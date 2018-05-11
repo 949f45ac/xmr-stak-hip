@@ -2,6 +2,7 @@ project(xmr-stak-nvidia)
 
 cmake_minimum_required(VERSION 3.0.1)
 
+set( CMAKE_VERBOSE_MAKEFILE on )
 # enforce C++11
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -12,9 +13,11 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 
 # help to find cuda on systems with a software module system
-list(APPEND CMAKE_PREFIX_PATH "$ENV{CUDA_ROOT}")
+list(APPEND CMAKE_PREFIX_PATH "$ENV{HIP_ROOT_DIR}")
 # allow user to extent CMAKE_PREFIX_PATH via environment variable
 list(APPEND CMAKE_PREFIX_PATH "$ENV{CMAKE_PREFIX_PATH}")
+
+SET(CMAKE_MODULE_PATH /opt/rocm/hip/cmake)
 
 ################################################################################
 # CMake user options
@@ -41,7 +44,7 @@ if(XMR-STAK_LARGEGRID)
     add_definitions("-DXMR_STAK_LARGEGRID=${XMR-STAK_LARGEGRID}")
 endif()
 
-set(DEVICE_COMPILER "nvcc")
+set(DEVICE_COMPILER "clang")
 set(CUDA_COMPILER "${DEVICE_COMPILER}" CACHE STRING "Select the device compiler")
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
@@ -54,7 +57,8 @@ set_property(CACHE CUDA_COMPILER PROPERTY STRINGS "${DEVICE_COMPILER}")
 # Find CUDA
 ################################################################################
 
-find_package(CUDA 7.5 REQUIRED)
+find_package(HIP REQUIRED)
+include(FindHIP)
 set(LIBS ${LIBS} ${CUDA_LIBRARIES})
 
 set(XMR-STAK_THREADS 0 CACHE STRING "Set maximum number of threads (for compile time optimization)")
@@ -85,7 +89,7 @@ option(CUDA_KEEP_FILES "Keep all intermediate files that are generated during in
 
 if("${CUDA_COMPILER}" STREQUAL "clang")
     set(LIBS ${LIBS} cudart_static)
-    set(CLANG_BUILD_FLAGS "-O3 -x cuda --cuda-path=${CUDA_TOOLKIT_ROOT_DIR}")
+    set(CLANG_BUILD_FLAGS "-O3 -x cuda --cuda-path=${HIP_ROOT_DIR}")
     # activation usage of FMA
     set(CLANG_BUILD_FLAGS "${CLANG_BUILD_FLAGS} -ffp-contract=fast")
 
@@ -102,33 +106,33 @@ if("${CUDA_COMPILER}" STREQUAL "clang")
         set(CLANG_BUILD_FLAGS "${CLANG_BUILD_FLAGS} --cuda-gpu-arch=sm_${CUDA_ARCH_ELEM}")
     endforeach()
 
-elseif("${CUDA_COMPILER}" STREQUAL "nvcc")
+elseif("${CUDA_COMPILER}" STREQUAL "/opt/rocm/bin/hipcc")
     # avoid that nvcc in CUDA < 8 tries to use libc `memcpy` within the kernel
-    if(CUDA_VERSION VERSION_LESS 8.0)
+    if(HIP_VERSION VERSION_LESS 8.0)
         add_definitions(-D_FORCE_INLINES)
     endif()
     foreach(CUDA_ARCH_ELEM ${CUDA_ARCH})
         # set flags to create device code for the given architecture
-        set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}
+        set(HIP_NVCC_FLAGS ${HIP_NVCC_FLAGS}
             "--generate-code arch=compute_${CUDA_ARCH_ELEM},code=sm_${CUDA_ARCH_ELEM} --generate-code arch=compute_${CUDA_ARCH_ELEM},code=compute_${CUDA_ARCH_ELEM}")
     endforeach()
 
     # give each thread an independent default stream
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --default-stream per-thread")
+    set(HIP_NVCC_FLAGS "${HIP_NVCC_FLAGS} --default-stream per-thread")
 
     option(CUDA_SHOW_CODELINES "Show kernel lines in cuda-gdb and cuda-memcheck" OFF)
 
     if(CUDA_SHOW_CODELINES)
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" --source-in-ptx -lineinfo)
+        set(HIP_NVCC_FLAGS "${HIP_NVCC_FLAGS}" --source-in-ptx -lineinfo)
         set(CUDA_KEEP_FILES ON CACHE BOOL "activate keep files" FORCE)
     endif(CUDA_SHOW_CODELINES)
 
     if(CUDA_SHOW_REGISTER)
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" -Xptxas=-v)
+        set(HIP_NVCC_FLAGS "${HIP_NVCC_FLAGS}" -Xptxas=-v)
     endif(CUDA_SHOW_REGISTER)
 
     if(CUDA_KEEP_FILES)
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" --keep --keep-dir "${PROJECT_BINARY_DIR}")
+        set(HIP_NVCC_FLAGS "${HIP_NVCC_FLAGS}" --keep --keep-dir "${PROJECT_BINARY_DIR}")
     endif(CUDA_KEEP_FILES)
 
 else()
@@ -156,7 +160,8 @@ if("${MHTD}" STREQUAL "MHTD-NOTFOUND")
         add_definitions("-DCONF_NO_HTTPD")
     endif()
 else()
-    set(LIBS ${LIBS} ${MHTD})
+        add_definitions("-DCONF_NO_HTTPD")
+    # set(LIBS ${LIBS} ${MHTD})
 endif()
 
 ###############################################################################
@@ -183,13 +188,17 @@ endif()
 ################################################################################
 
 include_directories(.)
+include_directories("/opt/rocm/hip/include")
 
 # activate sse2 and aes-ni
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse2 -maes")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msse2 -maes -fPIC")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse2 -maes -fPIC -Wall")
 
-file(GLOB CUDASRCFILES "nvcc_code/*.cu")
-file(GLOB SRCFILES "*.cpp" "crypto/*.cpp")
+file(GLOB CUDASRCFILES "hip_code/*.cu")
+file(GLOB SRCFILES "*[^cu].cpp" "crypto/*[^cu].cpp")
 file(GLOB SRCFILES_CRYPTO "crypto/*.c")
+file(GLOB SRCFILES_TEST "test/*.cpp")
+
 
 if("${CUDA_COMPILER}" STREQUAL "clang")
     # build device code with clang
@@ -202,10 +211,13 @@ if("${CUDA_COMPILER}" STREQUAL "clang")
     set_source_files_properties(${CUDASRCFILES} PROPERTIES LANGUAGE CXX)
 else()
     # build device code with nvcc
-    cuda_add_library(xmr-stak-nvidiaCuda
+    hip_add_library(xmr-stak-nvidiaCuda
         STATIC
         ${CUDASRCFILES}
     )
+    #set(CMAKE_HIP_CREATE_STATIC_LIBRARY "${HIP_HIPCC_CMAKE_LINKER_HELPER} xmr-stak-nvidiaCuda")
+    set_target_properties(xmr-stak-nvidiaCuda PROPERTIES LINK_FLAGS "-Bsymbolic -Bdynamic")
+    #set_source_files_properties(${CUDASRCFILES} PROPERTIES LANGUAGE HIP)
 endif()
 
 add_library(xmr-stak-nvidiaCrypto
@@ -213,10 +225,19 @@ add_library(xmr-stak-nvidiaCrypto
     ${SRCFILES_CRYPTO}
 )
 set_property(TARGET xmr-stak-nvidiaCrypto PROPERTY C_STANDARD 99)
+#set_property(TARGET xmr-stak-nvidiaCrypto PROPERTY COMPILE_FLAGS "-msse2 -maes") 
 
-add_executable(xmr-stak-nvidia
+hip_add_executable(xmr-stak-nvidia
     ${SRCFILES}
-)
+	)
+  
+if("${HIP_PLATFORM}" STREQUAL "hcc")
+  hip_add_executable(xmr-stak-test
+	${SRCFILES_TEST}
+	)
+endif()
+#SET(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -L/opt/rocm/hip/lib -L/opt/rocm/hsa/lib -L/opt/rocm/lib -L/usr/local/cuda-8.0/lib64 -lhip_hcc -lhsa-runtime64 -lhc_am -lhsakmt -lcudart")
+#SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -rpath /opt/rocm/lib -rpath /opt/rocm/lib/libhip_hcc.so -rpath /opt/rocm/lib/libhip_device.a -rpath /usr/local/cuda-8.0/lib64 -Bsymbolic")
 
 # for gnu compiler <5.1 wee need to activate c++11 by explicit for cuda and all cpp files
 if(("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU") AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.1))
@@ -227,6 +248,10 @@ endif()
 set(EXECUTABLE_OUTPUT_PATH "bin")
 
 target_link_libraries(xmr-stak-nvidia ${LIBS} xmr-stak-nvidiaCuda xmr-stak-nvidiaCrypto)
+
+if("${HIP_PLATFORM}" STREQUAL "hcc")
+  target_link_libraries(xmr-stak-test ${LIBS} xmr-stak-nvidiaCuda xmr-stak-nvidiaCrypto)
+endif()
 
 ################################################################################
 # Install

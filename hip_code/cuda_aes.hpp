@@ -1,3 +1,4 @@
+#include <hip/hip_runtime.h>
 
 #pragma once
 
@@ -6,7 +7,7 @@
 #define N_COLS          4
 #define WPOLY           0x011b
 
-static __constant__ uint32_t d_t_fn[1024] =
+__constant__ uint32_t d_t_fn[1024] =
 {
 	0xa56363c6U, 0x847c7cf8U, 0x997777eeU, 0x8d7b7bf6U,
 	0x0df2f2ffU, 0xbd6b6bd6U, 0xb16f6fdeU, 0x54c5c591U,
@@ -278,7 +279,7 @@ static __constant__ uint32_t d_t_fn[1024] =
 	y[2] = (k)[2]  ^ (t_fn0(x[2] & 0xff) ^ t_fn1((x[3] >> 8) & 0xff) ^ t_fn2((x[0] >> 16) & 0xff) ^ t_fn3((x[1] >> 24))); \
 	y[3] = (k)[3]  ^ (t_fn0(x[3] & 0xff) ^ t_fn1((x[0] >> 8) & 0xff) ^ t_fn2((x[1] >> 16) & 0xff) ^ t_fn3((x[2] >> 24) ));
 
-__device__ __forceinline__ static void cn_aes_single_round(uint32_t * __restrict__ sharedMemory, const uint32_t * __restrict__ in, uint32_t * __restrict__ out, const uint32_t * __restrict__ expandedKey)
+__device__ __forceinline__ static void cn_aes_single_round(const uint32_t * __restrict__ sharedMemory, const uint32_t * __restrict__ in, uint32_t * __restrict__ out, const uint32_t * __restrict__ expandedKey)
 {
 	round(sharedMemory, out, in, expandedKey);
 }
@@ -300,6 +301,6 @@ __device__ __forceinline__ static void cn_aes_pseudo_round_mut(const uint32_t * 
 
 __device__ __forceinline__ static void cn_aes_gpu_init(uint32_t *sharedMemory)
 {
-	for(int i = threadIdx.x; i < 1024; i += blockDim.x)
+	for(int i = hipThreadIdx_x; i < 1024; i += hipBlockDim_x)
 		sharedMemory[i] = d_t_fn[i];
 }

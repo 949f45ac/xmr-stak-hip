@@ -3,7 +3,7 @@
 
 #include "autoAdjust.hpp"
 
-#include "nvcc_code/cryptonight.h"
+#include "hip_code/cryptonight.h"
 #include "jconf.h"
 #include "console.h"
 

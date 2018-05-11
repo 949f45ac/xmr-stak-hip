@@ -1,11 +1,14 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <device_functions.hpp>
+#include <hip/hip_runtime.h>
+#include <hip/device_functions.h>
 
-#ifdef __CUDACC__
+#ifdef __NVCC__
+#include <cuda_runtime.h>
+#endif
+
+#ifdef __HIPCC__
 __constant__
 #else
 const
@@ -52,11 +55,12 @@ __constant__ uint8_t d_sub_byte[16][16] ={
 	{0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16 }
 };
 
+__constant__ uint32_t aes_gf[] = { 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36 };
+
 __device__ __forceinline__ void cryptonight_aes_set_key( uint32_t * __restrict__ key, const uint32_t * __restrict__ data )
 {
 	int i, j;
 	uint8_t temp[4];
-	const uint32_t aes_gf[] = { 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36 };
 
 	MEMSET4( key, 0, 40 );
 	MEMCPY4( key, data, 8 );
@@ -88,7 +92,7 @@ __device__ __forceinline__ void cryptonight_aes_set_key( uint32_t * __restrict__
 
 __global__ void cryptonight_extra_gpu_prepare( int threads, uint32_t * __restrict__ d_input, uint32_t len, uint32_t startNonce, uint32_t * __restrict__ d_ctx_state, uint32_t * __restrict__ d_ctx_a, uint32_t * __restrict__ d_ctx_b, uint32_t * __restrict__ d_ctx_key1, uint32_t * __restrict__ d_ctx_key2 )
 {
-	int thread = ( blockDim.x * blockIdx.x + threadIdx.x );
+	int thread = ( hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x );
 
 	if ( thread >= threads )
 		return;
@@ -111,6 +115,7 @@ __global__ void cryptonight_extra_gpu_prepare( int threads, uint32_t * __restric
 	cryptonight_aes_set_key( ctx_key2, ctx_state + 8 );
 	XOR_BLOCKS_DST( ctx_state, ctx_state + 8, ctx_a );
 	XOR_BLOCKS_DST( ctx_state + 4, ctx_state + 12, ctx_b );
+        __threadfence_block();
 
 	memcpy( d_ctx_state + thread * 50, ctx_state, 50 * 4 );
 	memcpy( d_ctx_a + thread * 4, ctx_a, 4 * 4 );
@@ -121,7 +126,7 @@ __global__ void cryptonight_extra_gpu_prepare( int threads, uint32_t * __restric
 
 __global__ void cryptonight_extra_gpu_final( int threads, uint64_t target, uint32_t* __restrict__ d_res_count, uint32_t * __restrict__ d_res_nonce, uint32_t * __restrict__ d_ctx_state )
 {
-	const int thread = blockDim.x * blockIdx.x + threadIdx.x;
+	const uint32_t thread = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
 
 	if ( thread >= threads )
 		return;
@@ -129,13 +134,15 @@ __global__ void cryptonight_extra_gpu_final( int threads, uint64_t target, uint3
 	int i;
 	uint32_t * __restrict__ ctx_state = d_ctx_state + thread * 50;
 	uint64_t hash[4];
-	uint32_t state[50];
+	uint64_t state[25];
+
+	uint32_t* state32 = reinterpret_cast<uint32_t*>(state);
 
 #pragma unroll
 	for ( i = 0; i < 50; i++ )
-		state[i] = ctx_state[i];
+		state32[i] = ctx_state[i];
 
-	cn_keccakf2( (uint64_t *) state );
+	cn_keccakf2( state );
 
 	switch ( ( (uint8_t *) state )[0] & 0x03 )
 	{
@@ -155,6 +162,8 @@ __global__ void cryptonight_extra_gpu_final( int threads, uint64_t target, uint3
 		break;
 	}
 
+	memcpy( d_ctx_state + thread * 50, state, 50 * 4 );
+
 	// Note that comparison is equivalent to subtraction - we can't just compare 8 32-bit values
 	// and expect an accurate result for target > 32-bit without implementing carries
 
@@ -170,95 +179,119 @@ __global__ void cryptonight_extra_gpu_final( int threads, uint64_t target, uint3
 extern "C" void cryptonight_extra_cpu_set_data( nvid_ctx* ctx, const void *data, uint32_t len )
 {
 	ctx->inputlen = len;
-	cudaMemcpy( ctx->d_input, data, len, cudaMemcpyHostToDevice );
+	hipMemcpy( ctx->d_input, data, len, hipMemcpyHostToDevice );
 	exit_if_cudaerror( ctx->device_id, __FILE__, __LINE__ );
 }
 
 extern "C" int cryptonight_extra_cpu_init(nvid_ctx* ctx)
 {
-	cudaError_t err;
-	err = cudaSetDevice(ctx->device_id);
-	if(err != cudaSuccess)
+	hipError_t err;
+	err = hipSetDevice(ctx->device_id);
+	if(err != hipSuccess)
 	{
-		printf("GPU %d: %s", ctx->device_id, cudaGetErrorString(err));
+		printf("GPU %d: %s", ctx->device_id, hipGetErrorString(err));
 		return 0;
 	}
 
-	cudaDeviceReset();
-	cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
-	cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+	//hipDeviceReset();
+#ifdef __HCC__
+	hipSetDeviceFlags(hipDeviceScheduleBlockingSync);
+	hipDeviceSetCacheConfig(hipFuncCachePreferL1);
+#else
+        cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
+        cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+#endif
 
 	size_t wsize = ctx->device_blocks * ctx->device_threads;
-	cudaMalloc(&ctx->d_long_state, (size_t)MEMORY * wsize);
+	hipMalloc(&ctx->d_long_state, (size_t)MEMORY * wsize);
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__);
-	cudaMalloc(&ctx->d_ctx_state, 50 * sizeof(uint32_t) * wsize);
+	hipMalloc(&ctx->d_ctx_state, 50 * sizeof(uint32_t) * wsize);
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__);
-	cudaMalloc(&ctx->d_ctx_key1, 40 * sizeof(uint32_t) * wsize);
+	hipMalloc(&ctx->d_ctx_key1, 40 * sizeof(uint32_t) * wsize);
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__);
-	cudaMalloc(&ctx->d_ctx_key2, 40 * sizeof(uint32_t) * wsize);
+	hipMalloc(&ctx->d_ctx_key2, 40 * sizeof(uint32_t) * wsize);
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__);
-	cudaMalloc(&ctx->d_ctx_text, 32 * sizeof(uint32_t) * wsize);
+	hipMalloc(&ctx->d_ctx_text, 32 * sizeof(uint32_t) * wsize);
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__);
-	cudaMalloc(&ctx->d_ctx_a, 4 * sizeof(uint32_t) * wsize);
+	hipMalloc(&ctx->d_ctx_a, 4 * sizeof(uint32_t) * wsize);
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__);
-	cudaMalloc(&ctx->d_ctx_b, 4 * sizeof(uint32_t) * wsize);
+	hipMalloc(&ctx->d_ctx_b, 4 * sizeof(uint32_t) * wsize);
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__);
-	cudaMalloc(&ctx->d_input, 21 * sizeof (uint32_t ) );
+	hipMalloc(&ctx->d_input, 21 * sizeof (uint32_t ) );
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__);
-	cudaMalloc(&ctx->d_result_count, sizeof (uint32_t ) );
+	hipMalloc(&ctx->d_result_count, sizeof (uint32_t ) );
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
-	cudaMalloc(&ctx->d_result_nonce, 10 * sizeof (uint32_t ) );
+	hipMalloc(&ctx->d_result_nonce, 10 * sizeof (uint32_t ) );
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
 	return 1;
 }
 
+void set_grid_block(nvid_ctx* ctx, dim3 * grid, dim3 * block) {
+	uint32_t blocks = ctx->device_blocks;
+	uint32_t threads = ctx->device_threads;
+	int minblocks;
+#ifdef __HCC__
+	minblocks = 54;
+#else
+	minblocks = 6;
+#endif
+	while (blocks > minblocks) {
+		blocks /= 2;
+		threads *= 2;
+	}
+	*grid = dim3( blocks );
+	*block = dim3( threads );
+}
+
 extern "C" void cryptonight_extra_cpu_prepare(nvid_ctx* ctx, uint32_t startNonce)
 {
-	int threadsperblock = 128;
 	uint32_t wsize = ctx->device_blocks * ctx->device_threads;
 
-	dim3 grid( ( wsize + threadsperblock - 1 ) / threadsperblock );
-	dim3 block( threadsperblock );
+/*	dim3 grid( ( wsize + threadsperblock - 1 ) / threadsperblock );
+	dim3 block( threadsperblock );*/
+	dim3 grid, block;
+	set_grid_block(ctx, &grid, &block);
 
-	cryptonight_extra_gpu_prepare<<<grid, block >>>( wsize, ctx->d_input, ctx->inputlen, startNonce,
-		ctx->d_ctx_state, ctx->d_ctx_a, ctx->d_ctx_b, ctx->d_ctx_key1, ctx->d_ctx_key2 );
+	hipLaunchKernelGGL(cryptonight_extra_gpu_prepare, dim3(grid), dim3(block), 0, 0, wsize, ctx->d_input, ctx->inputlen, startNonce,
+		ctx->d_ctx_state, ctx->d_ctx_a, ctx->d_ctx_b, ctx->d_ctx_key1, ctx->d_ctx_key2);
 
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
 }
 
 extern "C" void cryptonight_extra_cpu_final(nvid_ctx* ctx, uint32_t startNonce, uint64_t target, uint32_t* rescount, uint32_t *resnonce)
 {
-	int threadsperblock = 128;
 	uint32_t wsize = ctx->device_blocks * ctx->device_threads;
+	dim3 grid, block;
+	set_grid_block(ctx, &grid, &block);
 
-	dim3 grid( ( wsize + threadsperblock - 1 ) / threadsperblock );
-	dim3 block( threadsperblock );
-
-	cudaMemset( ctx->d_result_nonce, 0xFF, 10 * sizeof (uint32_t ) );
+	hipMemset( ctx->d_result_nonce, 0xFF, 10 * sizeof (uint32_t ) );
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
-	cudaMemset( ctx->d_result_count, 0, sizeof (uint32_t ) );
-	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
-
-	cryptonight_extra_gpu_final<<<grid, block >>>( wsize, target, ctx->d_result_count, ctx->d_result_nonce, ctx->d_ctx_state );
+	hipMemset( ctx->d_result_count, 0, sizeof (uint32_t ) );
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
 
-	cudaMemcpy( rescount, ctx->d_result_count, sizeof (uint32_t ), cudaMemcpyDeviceToHost );
-	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
-	cudaMemcpy( resnonce, ctx->d_result_nonce, 10 * sizeof (uint32_t ), cudaMemcpyDeviceToHost );
+	hipLaunchKernelGGL(cryptonight_extra_gpu_final, dim3(grid), dim3(block), 0, 0, wsize, target, ctx->d_result_count, ctx->d_result_nonce, ctx->d_ctx_state);
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
 
-	for(int i=0; i < *rescount; i++)
+	hipMemcpy( rescount, ctx->d_result_count, sizeof (uint32_t ), hipMemcpyDeviceToHost );
+	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
+	hipMemcpy( resnonce, ctx->d_result_nonce, 10 * sizeof (uint32_t ), hipMemcpyDeviceToHost );
+	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
+
+	printf ("Run for startnonce %d with target %016lX over.\n", startNonce, target);
+	for(int i=0; i < *rescount; i++) {
+		printf ("Found raw resnonce %d.\n", resnonce[i]);
 		resnonce[i] += startNonce;
+	}
 }
 
 extern "C" int cuda_get_devicecount( int* deviceCount)
 {
-	cudaError_t err;
+	hipError_t err;
 	*deviceCount = 0;
-	err = cudaGetDeviceCount(deviceCount);
-	if(err != cudaSuccess)
+	err = hipGetDeviceCount(deviceCount);
+	if(err != hipSuccess)
 	{
-		if(err != cudaErrorNoDevice)
+		if(err != hipErrorNoDevice)
 			printf("No CUDA device found!\n");
 		else
 			printf("Unable to query number of CUDA devices!\n");
@@ -268,19 +301,23 @@ extern "C" int cuda_get_devicecount( int* deviceCount)
 	return 1;
 }
 
+#ifndef CUDART_VERSION
+#define CUDART_VERSION 0
+#endif
+
 extern "C" int cuda_get_deviceinfo(nvid_ctx* ctx)
 {
-	cudaError_t err;
+	hipError_t err;
 	int version;
 
-	err = cudaDriverGetVersion(&version);
-	if(err != cudaSuccess)
+	err = hipDriverGetVersion(&version);
+	if(err != hipSuccess)
 	{
 		printf("Unable to query CUDA driver version! Is an nVidia driver installed?\n");
 		return 0;
 	}
 
-	if(version < CUDART_VERSION)
+	if(version < 0) //CUDART_VERSION)
 	{
 		printf("Driver does not support CUDA %d.%d API! Update your nVidia driver!\n", CUDART_VERSION / 1000, (CUDART_VERSION % 1000) / 10);
 		return 0;
@@ -298,18 +335,24 @@ extern "C" int cuda_get_deviceinfo(nvid_ctx* ctx)
 		return 0;
 	}
 
-	cudaDeviceProp props;
-	err = cudaGetDeviceProperties(&props, ctx->device_id);
-	if(err != cudaSuccess)
+	hipDeviceProp_t props;
+	err = hipGetDeviceProperties(&props, ctx->device_id);
+	if(err != hipSuccess)
 	{
-		printf("\nGPU %d: %s\n%s line %d\n", ctx->device_id, cudaGetErrorString(err), __FILE__, __LINE__);
+		printf("\nGPU %d: %s\n%s line %d\n", ctx->device_id, hipGetErrorString(err), __FILE__, __LINE__);
 		return 0;
 	}
 
 	ctx->device_name = strdup(props.name);
 	ctx->device_mpcount = props.multiProcessorCount;
+#if 0 // def __HCC__
+        // Treat HCC as Cuda 4.0 feature-wise, for now
+	ctx->device_arch[0] = 4;
+	ctx->device_arch[1] = 0;
+#else
 	ctx->device_arch[0] = props.major;
 	ctx->device_arch[1] = props.minor;
+#endif
 
 	// set all evice option those marked as auto (-1) to a valid value
 	if(ctx->device_blocks == -1)
@@ -342,7 +385,7 @@ extern "C" int cuda_get_deviceinfo(nvid_ctx* ctx)
 		{
 			size_t freeMemory = 0;
 			size_t totalMemory = 0;
-			cudaMemGetInfo(&freeMemory, &totalMemory);
+			hipMemGetInfo(&freeMemory, &totalMemory);
 			exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
 			freeMemory = (freeMemory * size_t(85)) / 100;
 			if( freeMemory > (size_t(ctx->device_blocks) * size_t(ctx->device_threads) * size_t(2u * 1024u * 1024u)) )

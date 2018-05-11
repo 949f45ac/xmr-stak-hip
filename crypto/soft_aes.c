@@ -24,6 +24,7 @@
 /*
  * The orginal author of this AES implementation is Karl Malbrain.
  */
+#if 0
 
 #ifdef __GNUC__
 #include <x86intrin.h>
@@ -210,3 +211,5 @@ __m128i soft_aeskeygenassist(__m128i key, uint8_t rcon)
 	sub_word((uint8_t*)&X3);
 	return _mm_set_epi32(_rotr(X3, 8) ^ rcon, X3,_rotr(X1, 8) ^ rcon, X1);
 }
+
+#endif

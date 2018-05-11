@@ -7,8 +7,10 @@
  * You miner will mine into your usual pool for 99 minutes, then switch to the developer's pool for 1.0 minute.
  * Switching is instant, and only happens after a successful connection, so you never loose any hashes.
  *
- * If you plan on changing this setting to 0.0 please consider making a one off donation to my wallet:
- * 4581HhZkQHgZrZjKeCfCJxZff9E3xCgHGF25zABZz7oR71TnbbgiS7sK9jveE6Dx6uMs2LwszDuvQJgRZQotdpHt1fTdDhk
+ * Address for automatic donations is unchanged from original xmr-stak-nvidia.
+ *
+ * Please direct manual donations for the 3% tweak proof of concept to:
+ * 45FbpewbfJf6wp7gkwAqtwNc7wqnpEeJdUH2QRgeLPhZ1Chhi2qs4sNQKJX4Ek2jm946zmyBYnH6SFVCdL5aMjqRHodYYsF
  *
  */
 

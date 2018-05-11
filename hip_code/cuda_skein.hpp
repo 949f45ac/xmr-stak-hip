@@ -127,9 +127,7 @@ typedef struct {
 	} u;
 } skeinHashState;
 
-__device__ void cn_skein_init(skeinHashState *state, size_t hashBitLen)
-{
-	const uint64_t SKEIN_512_IV_256[] =
+	__constant__ uint64_t SKEIN_512_IV_256[] =
 	{
 		SKEIN_MK_64(0xCCD044A1,0x2FDB3E13),
 		SKEIN_MK_64(0xE8359030,0x1A79A9EB),
@@ -140,6 +138,8 @@ __device__ void cn_skein_init(skeinHashState *state, size_t hashBitLen)
 		SKEIN_MK_64(0xC36FBAF9,0x393AD185),
 		SKEIN_MK_64(0x3EEDBA18,0x33EDFC13)
 	};
+__device__ void cn_skein_init(skeinHashState *state, size_t hashBitLen)
+{
 
 	Skein_512_Ctxt_t *ctx = &state->u.ctx_512;
 

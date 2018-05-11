@@ -2,7 +2,8 @@
 
 typedef struct {
 	uint32_t h[8], s[4], t[2];
-	int buflen, nullt;
+	uint32_t buflen;
+	int nullt;
 	uint8_t buf[64];
 } blake_state;
 
@@ -10,9 +11,37 @@ typedef struct {
 	(((uint32_t)((p)[0]) << 24) | ((uint32_t)((p)[1]) << 16) | \
 	((uint32_t)((p)[2]) <<  8) | ((uint32_t)((p)[3])      ))
 
+//	byteswap(p);	
+
+__device__ __forceinline__ uint32_t byteswap(uint32_t pr) {
+//	return (uint32_t) p[0];
+	uint32_t p0, p1, p2, p3;
+//	uint32_t pr = *((uint32_t*)p);
+
+	p0 = pr & 0xFF000000;
+	p1 = pr & 0x00FF0000;
+	p2 = pr & 0x0000FF00;
+	p3 = pr & 0x000000FF;
+
+	return (p3 << 24) | (p2 << 8) | (p1 >> 8) | (p0 >> 24);
+}
+
 #define U32TO8(p, v) \
 	(p)[0] = (uint8_t)((v) >> 24); (p)[1] = (uint8_t)((v) >> 16); \
 	(p)[2] = (uint8_t)((v) >>  8); (p)[3] = (uint8_t)((v)      );
+
+template< typename T >
+__device__ __forceinline__ T loadScratch32( T * const addr )
+{
+        T x;
+#ifdef __HCC__
+       	asm volatile( "flat_load_dword %0, %1" : "=v"( x ) : "r"( addr ) ); 
+#else
+        asm volatile( "ld.local.cg.u32 %0, [%1];" : "=r"( x ) : "l"( addr ) );
+#endif
+        return x;
+}
+#define V_FENCE asm volatile( "s_waitcnt vmcnt(0)");
 
 #define BLAKE_ROT(x,n) ROTR32(x, n)
 #define BLAKE_G(a,b,c,d,e) \
@@ -25,7 +54,7 @@ typedef struct {
 	v[c] += v[d];                     \
 	v[b] = BLAKE_ROT(v[b] ^ v[c], 7);
 
-__constant__ uint8_t d_blake_sigma[14][16] =
+__constant__ uint32_t d_blake_sigma[14][16] =
 {
 	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 	{14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3},
@@ -50,7 +79,7 @@ __constant__ uint32_t d_blake_cst[16]
 	0xC0AC29B7, 0xC97C50DD, 0x3F84D5B5, 0xB5470917
 };
 
-__device__ void cn_blake_compress(blake_state * __restrict__ S, const uint8_t * __restrict__ block)
+__device__ void cn_blake_compress(blake_state * S, const uint8_t * block)
 {
 	uint32_t v[16], m[16], i;
 
@@ -91,10 +120,10 @@ __device__ void cn_blake_compress(blake_state * __restrict__ S, const uint8_t * 
 
 __device__ void cn_blake_update(blake_state * __restrict__ S, const uint8_t * __restrict__ data, uint64_t datalen)
 {
-	int left = S->buflen >> 3;
-	int fill = 64 - left;
+	uint32_t left = S->buflen >> 3;
+	uint32_t fill = 64 - left;
 
-	if (left && (((datalen >> 3) & 0x3F) >= (unsigned) fill)) 
+	if (left && (((datalen >> 3) & 0x3F) >= fill)) 
 	{
 		memcpy((void *) (S->buf + left), (void *) data, fill);
 		S->t[0] += 512;
@@ -125,14 +154,14 @@ __device__ void cn_blake_update(blake_state * __restrict__ S, const uint8_t * __
 	}
 }
 
-__device__ void cn_blake_final(blake_state * __restrict__ S, uint8_t * __restrict__ digest)
-{
-	const uint8_t padding[] = 
+__constant__ uint8_t padding[] = 
 	{
 		0x80,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 	};
 
+__device__ void cn_blake_final(blake_state * __restrict__ S, uint8_t * __restrict__ digest)
+{
 	uint8_t pa = 0x81, pb = 0x01;
 	uint8_t msglen[8];
 	uint32_t lo = S->t[0] + S->buflen, hi = S->t[1];
@@ -180,14 +209,13 @@ __device__ void cn_blake_final(blake_state * __restrict__ S, uint8_t * __restric
 __device__ void cn_blake(const uint8_t * __restrict__ in, uint64_t inlen, uint8_t * __restrict__ out)
 {
 	blake_state bs;
-	blake_state *S = (blake_state *)&bs;
 
-	S->h[0] = 0x6A09E667; S->h[1] = 0xBB67AE85; S->h[2] = 0x3C6EF372;
-	S->h[3] = 0xA54FF53A; S->h[4] = 0x510E527F; S->h[5] = 0x9B05688C;
-	S->h[6] = 0x1F83D9AB; S->h[7] = 0x5BE0CD19;
-	S->t[0] = S->t[1] = S->buflen = S->nullt = 0;
-	S->s[0] = S->s[1] = S->s[2] = S->s[3] = 0;
+	bs.h[0] = 0x6A09E667; bs.h[1] = 0xBB67AE85; bs.h[2] = 0x3C6EF372;
+	bs.h[3] = 0xA54FF53A; bs.h[4] = 0x510E527F; bs.h[5] = 0x9B05688C;
+	bs.h[6] = 0x1F83D9AB; bs.h[7] = 0x5BE0CD19;
+	bs.t[0] = bs.t[1] = bs.buflen = bs.nullt = 0;
+	bs.s[0] = bs.s[1] = bs.s[2] = bs.s[3] = 0;
 
-	cn_blake_update(S, (uint8_t *)in, inlen * 8);
-	cn_blake_final(S, (uint8_t *)out);
+	cn_blake_update(&bs, (uint8_t *)in, inlen * 8);
+	cn_blake_final(&bs, (uint8_t *)out);
 }

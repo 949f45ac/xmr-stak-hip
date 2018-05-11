@@ -68,11 +68,11 @@ void (* const extra_hashes[4])(const void *, size_t, char *) = {do_blake_hash, d
 
 void cryptonight_hash_ctx(const void* input, size_t len, void* output, cryptonight_ctx* ctx)
 {
-	cryptonight_hash<0x80000, MEMORY, true, false>(input, len, output, ctx);
+	cryptonight_hash<xmrstak_algo::cryptonight_monero, true, false>(input, len, output, ctx);
 }
 
 void cryptonight_hash_ctx_soft(const void* input, size_t len, void* output, cryptonight_ctx* ctx)
 {
-	cryptonight_hash<0x80000, MEMORY, true, true>(input, len, output, ctx);
+	cryptonight_hash<xmrstak_algo::cryptonight_monero, true, true>(input, len, output, ctx);
 }
 

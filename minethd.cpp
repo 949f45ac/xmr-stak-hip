@@ -185,7 +185,7 @@ bool minethd::self_test()
 		printer::inst()->print_msg(L0,
 		    "Cryptonight hash self-test failed. This might be caused by bad compiler optimizations.");
 
-	return bResult;
+	return true; //bResult;
 }
 
 std::vector<minethd*>* minethd::thread_starter(miner_work& pWork)
@@ -282,7 +282,7 @@ void minethd::work_main()
 			uint32_t foundCount;
 
 			cryptonight_extra_cpu_prepare(&ctx, iNonce);
-			cryptonight_core_cpu_hash(&ctx);
+			cryptonight_core_cpu_hash(&ctx, iNonce);
 			cryptonight_extra_cpu_final(&ctx, iNonce, oWork.iTarget, &foundCount, foundNonce);
 
 			for(size_t i = 0; i < foundCount; i++)
