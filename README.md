@@ -46,7 +46,7 @@ I.e. `threads * blocks * 2` must always be less than available GPU memory in MB,
 
 As for threads:
 
-- On AMD (Vega) cards, set threads to 8 for maximal performance. **E.g. use threads=8 blocks=448 for maximal performance on Vega 56.**
+- On AMD (Vega) cards, set threads to 8 for maximal performance. **E.g. use threads=8 blocks=448 for maximal performance on Vega 56.** 16 threads (with half the blocks) can be worth a try as well.
 
 - **On Nvidia cards, please do not use your usual settings**, but rather set `threads` to at least 32 (possibly the sweet spot for all GeForce cards) and blocks accordingly to a lower value. E.g. best performance on a 1050 Ti is reached by `threads=32, blocks=48`.
 
