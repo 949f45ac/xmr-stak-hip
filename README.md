@@ -1,19 +1,19 @@
 ## This repo contains
 
-Proof of concept for a ~3% optimization in the core CryptoNight algorithm. This optimization could theoretically be implemented on every GPU compute platform/framework.
+Proof of concept for a [~3% optimization](#Explanation-of-the-core-algo-optimization) in the core CryptoNight algorithm. This optimization could theoretically be implemented on every GPU compute platform/framework.
 
 This miner, however, currently works only on Linux. It can run:
 
 - Nvidia GeForce 10 series cards
 
-- AMD Vega cards – **Still slower than Windows**, but faster and more stable than the OpenCL miner on Linux
+- AMD Vega cards – **Still slower than Windows**, but faster and more stable than the OpenCL kernels on Linux
 
 Older Nvidia cards work as well, but may not experience any speedup.
 Older AMD cards would need to use different inline asm and even then are bugged pending further investigation.
 
 The code is based on xmr-stak-nvidia, i.e. the original CUDA part of xmr-stak. I have ported it to [HIP](https://github.com/ROCm-Developer-Tools/HIP), which is a framework developed by AMD that allows writing GPU compute code that can be built for both Nvidia GPUs (where it will be cross-compiled via CUDA and hence run with barely any performance impact) and AMD GPUs (where it uses the new "ROCm" driver stack).
 
-If you aren't technically literate/interested, I would not recommend trying to use this miner. It is relatively complicated to set up, and for little gain. If the optimization turns out to be useful and stable, it can be incorporated into the normal xmr-stak anyway.
+If you aren't technically literate/interested, I would not recommend trying to use this miner. It is relatively complicated to set up, and for little gain. If the optimization turns out to be useful and stable, it can be incorporated into the [normal xmr-stak](https://github.com/fireice-uk/xmr-stak) anyway.
 
 ## Build environment
 
