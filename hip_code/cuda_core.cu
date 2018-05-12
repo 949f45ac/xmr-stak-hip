@@ -93,86 +93,32 @@ __device__ __forceinline__ uint64_t cuda_mul128( uint64_t multiplier, uint64_t m
 //	asm volatile("mov.u32 %0, %2;\n\tmov.u32 %1, %3;" : "=r" (w[0]), "=r" (w[1]) : "r" (w[0]), "r" (w[1]) : "memory"); }
 #endif
 
-template< typename T >
-__device__ __forceinline__ T loadGlobal128( T* adr ) {
-	T val;
-	uint32_t * const val32 = (uint32_t*) &val;
-	asm volatile("flat_load_dwordx4 v[19:22], %4\n\t"
-		"s_waitcnt vmcnt(0)\n\t"
-//		"s_nop 7\n\t"
-	 	"v_mov_b32 %0, v19\n\t"
-		"v_mov_b32 %1, v20\n\t"
-		"v_mov_b32 %2, v21\n\t"
-		"v_mov_b32 %3, v22"
-		: "=v" (val32[0]), "=v" (val32[1]), "=v" (val32[2]), "=v" (val32[3]) 
-		: "r" ( adr )
-		: "v19", "v20", "v21", "v22" ); //, "memory" );
-	return val;
-}
 
-template< typename T >
-__device__ __forceinline__ T loadGlobal64( T * const addr )
-{
-	T x;
-#ifdef __HCC__
-	asm volatile( "flat_load_dwordx2 %0, %1 glc" : "=v"( x ) : "r"( addr ) );
-        __syncthreads();
+#ifdef __HIP_ARCH_GFX900__
+#define EMIT_LOAD(args) "global_load_dwordx2 " args ", off"
+#define EMIT_STORE(args) "global_store_dwordx4 " args ", off"
 #else
-	asm volatile( "ld.global.cg.u64 %0, [%1];" : "=l"( x ) : "l"( addr ) );
+#define EMIT_LOAD(args) "flat_load_dwordx2 " args
+#define EMIT_STORE(args) "flat_store_dwordx4 " args
 #endif
-	return x;
-}
 
 template< typename T >
-__device__ __forceinline__ T loadGlobal32( T * const addr )
-{
-	T x;
-#ifdef __HCC__
-	asm volatile( "flat_load_dword %0, %1 glc" : "=v"( x ) : "r"( addr ) );
-        __syncthreads();
-#else
-	asm volatile( "ld.global.cg.u32 %0, [%1];" : "=r"( x ) : "l"( addr ) );
-#endif
-	return x;
-}
-
-
-template< typename T >
-__device__ __forceinline__ void storeGlobal32( T* addr, T const & val )
-{
-#ifdef __HCC__
-	asm volatile( "flat_store_dword %0, %1 glc" : : "r"( addr ), "v"( val ) );
-#else
-	asm volatile( "st.global.cg.u32 [%0], %1;" : : "l"( addr ), "r"( val ) );
-#endif
-}
-
-template< typename T >
-__device__ __forceinline__ void storeGlobal64( T* addr, T const & val )
-{
-#ifdef __HCC__
-	asm volatile( "flat_store_dwordx2 %0, %1 glc" : : "r"( addr ), "v"( val ) );
-#else
-	asm volatile( "st.global.cg.u64 [%0], %1;" : : "l"( addr ), "l"( val ) );
-#endif
-}
-
-template< typename T >
-__device__ __forceinline__ void storeGlobal128( T* adr, T const & val ) {
+__device__ __forceinline__ void storeGlobal128AsyncGlc( T* adr, T const & val ) {
 #ifdef __HCC__
 	uint32_t * const val32 = (uint32_t*) &val;
 	asm volatile ("v_mov_b32 v19, %0\n\t"
-		"v_mov_b32 v20, %1\n\t"
-		"v_mov_b32 v21, %2\n\t"
-		"v_mov_b32 v22, %3\n\t"
-		"flat_store_dwordx4 %4, v[19:22] glc"
-		:
-		: "v" (val32[0]), "v" (val32[1]), "v" (val32[2]), "v" (val32[3]), "r" ( adr )
-		: "v19", "v20", "v21", "v22" ); //, "memory" );
+				  "v_mov_b32 v20, %1\n\t"
+				  "v_mov_b32 v21, %2\n\t"
+				  "v_mov_b32 v22, %3\n\t"
+				  EMIT_STORE("%4, v[19:22]") " glc"
+				  :
+				  : "v" (val32[0]), "v" (val32[1]), "v" (val32[2]), "v" (val32[3]), "r" ( adr )
+				  : "v19", "v20", "v21", "v22" ); //, "memory" );
 #else
-		*adr = val;
+	*adr = val;
 #endif
 }
+
 __global__ void cryptonight_core_gpu_phase1( int threads, int bfactor, int partidx, uint64_t * __restrict__ long_state_64, uint32_t * __restrict__ ctx_state, uint32_t * __restrict__ ctx_key1 )
 {
 	__shared__ uint32_t sharedMemory[1024];
@@ -213,7 +159,7 @@ __global__ void cryptonight_core_gpu_phase1( int threads, int bfactor, int parti
 		cn_aes_pseudo_round_mut( sharedMemory, (uint32_t*) &text, key );
 		
 		int offset = ((thread << 19) + (sub + i) ) / 4;
-		storeGlobal128(long_state + offset, text);
+		storeGlobal128AsyncGlc(long_state + offset, text);
 	}
 }
 
@@ -239,26 +185,27 @@ _gpu_mul_hi_u64(ulong x, ulong y)
     return x1*y1 + z2 + (z1 >> 32);
 }
 
+
 #ifdef __HCC__
-#define ASYNC_LOAD(dst0, dst1, adr)	{						\
-		asm volatile(										\
-			"flat_load_dwordx2 %0, %2\n\t"			\
-			"flat_load_dwordx2 %1, %3\n\t"	\
-			: "=v"(dst0), "=v" (dst1) : "r" (adr), "r"(adr+1) ); }
+#define ASYNC_LOAD(dst0, dst1, adr)	{								\
+		asm volatile(												\
+			EMIT_LOAD("%0, %2") "\n\t"								\
+			EMIT_LOAD("%1, %3")										\
+			: "=v"(dst0), "=v" (dst1)								\
+			: "r" (adr), "r"(adr+1) ); }
 #else
 #define ASYNC_LOAD(dst0, dst1, adr)	{								\
 		asm volatile( "prefetch.global.L1 [%0];" : : "l"(adr) );	\
 		asm volatile( "prefetch.global.L1 [%0+8];" : : "l"(adr) );}
 #endif
 
-
 // Only available for HCC.
 #define ASYNC_STORE(adr, src) {											\
 		uint32_t * const s32 = reinterpret_cast<uint32_t*>(&src);		\
-		asm volatile("flat_store_dwordx4 %0, v[20:23]"			\
+		asm volatile(EMIT_STORE("%0, v[20:23]")							\
 					 :													\
-					 : "r" (adr), "{v20}" (s32[0]), "{v21}" (s32[1]), "{v22}" (s32[2]), "{v23}" (s32[3]) \
-					 :  );}
+					 : "r" (adr),										\
+					   "{v20}" (s32[0]), "{v21}" (s32[1]), "{v22}" (s32[2]), "{v23}" (s32[3])); }
 
 
 #ifdef __HCC__
