@@ -4,12 +4,11 @@ Proof of concept for a [~3% optimization](#explanation-of-the-core-algo-optimiza
 
 This miner, however, currently works only on Linux. It can run:
 
-- Nvidia GeForce 10 series cards
+- Nvidia GeForce 10 series cards. Older series may work, but not experience any speedup.
 
-- AMD Vega cards – **Still slower than Windows**, but faster and more stable than the OpenCL kernels on Linux
+- AMD Vega cards – **Still slower than Windows**, but faster and more stable than the OpenCL kernels on Linux.
 
-Older Nvidia cards work as well, but may not experience any speedup.
-Older AMD cards would need to use different inline asm and even then are bugged pending further investigation.
+- AMD Polaris series cards – please use branch `flat_memops_gfx803`.
 
 The code is based on xmr-stak-nvidia, i.e. the original CUDA part of xmr-stak. I have ported it to [HIP](https://github.com/ROCm-Developer-Tools/HIP), which is a framework developed by AMD that allows writing GPU compute code that can be built for both Nvidia GPUs (where it will be cross-compiled via CUDA and hence run with barely any performance impact) and AMD GPUs (where it uses the new "ROCm" driver stack).
 
