@@ -243,7 +243,7 @@ _gpu_mul_hi_u64(ulong x, ulong y)
 #define ASYNC_LOAD(dst0, dst1, adr)	{						\
 		asm volatile(										\
 			"flat_load_dwordx2 %0, %2\n\t"			\
-			"flat_load_dwordx2 %1, %3 glc\n\t"	\
+			"flat_load_dwordx2 %1, %3\n\t"	\
 			: "=v"(dst0), "=v" (dst1) : "r" (adr), "r"(adr+1) ); }
 #else
 #define ASYNC_LOAD(dst0, dst1, adr)	{								\
