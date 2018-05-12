@@ -97,7 +97,7 @@ template< typename T >
 __device__ __forceinline__ T loadGlobal128( T* adr ) {
 	T val;
 	uint32_t * const val32 = (uint32_t*) &val;
-	asm volatile("global_load_dwordx4 v[19:22], %4, off\n\t"
+	asm volatile("flat_load_dwordx4 v[19:22], %4\n\t"
 		"s_waitcnt vmcnt(0)\n\t"
 //		"s_nop 7\n\t"
 	 	"v_mov_b32 %0, v19\n\t"
@@ -115,7 +115,7 @@ __device__ __forceinline__ T loadGlobal64( T * const addr )
 {
 	T x;
 #ifdef __HCC__
-	asm volatile( "global_load_dwordx2 %0, %1, off glc" : "=v"( x ) : "r"( addr ) );
+	asm volatile( "flat_load_dwordx2 %0, %1 glc" : "=v"( x ) : "r"( addr ) );
         __syncthreads();
 #else
 	asm volatile( "ld.global.cg.u64 %0, [%1];" : "=l"( x ) : "l"( addr ) );
@@ -128,7 +128,7 @@ __device__ __forceinline__ T loadGlobal32( T * const addr )
 {
 	T x;
 #ifdef __HCC__
-	asm volatile( "global_load_dword %0, %1, off glc" : "=v"( x ) : "r"( addr ) );
+	asm volatile( "flat_load_dword %0, %1 glc" : "=v"( x ) : "r"( addr ) );
         __syncthreads();
 #else
 	asm volatile( "ld.global.cg.u32 %0, [%1];" : "=r"( x ) : "l"( addr ) );
@@ -141,7 +141,7 @@ template< typename T >
 __device__ __forceinline__ void storeGlobal32( T* addr, T const & val )
 {
 #ifdef __HCC__
-	asm volatile( "global_store_dword %0, %1, off glc" : : "r"( addr ), "v"( val ) );
+	asm volatile( "flat_store_dword %0, %1 glc" : : "r"( addr ), "v"( val ) );
 #else
 	asm volatile( "st.global.cg.u32 [%0], %1;" : : "l"( addr ), "r"( val ) );
 #endif
@@ -151,7 +151,7 @@ template< typename T >
 __device__ __forceinline__ void storeGlobal64( T* addr, T const & val )
 {
 #ifdef __HCC__
-	asm volatile( "global_store_dwordx2 %0, %1, off glc" : : "r"( addr ), "v"( val ) );
+	asm volatile( "flat_store_dwordx2 %0, %1 glc" : : "r"( addr ), "v"( val ) );
 #else
 	asm volatile( "st.global.cg.u64 [%0], %1;" : : "l"( addr ), "l"( val ) );
 #endif
@@ -165,7 +165,7 @@ __device__ __forceinline__ void storeGlobal128( T* adr, T const & val ) {
 		"v_mov_b32 v20, %1\n\t"
 		"v_mov_b32 v21, %2\n\t"
 		"v_mov_b32 v22, %3\n\t"
-		"global_store_dwordx4 %4, v[19:22], off glc"
+		"flat_store_dwordx4 %4, v[19:22] glc"
 		:
 		: "v" (val32[0]), "v" (val32[1]), "v" (val32[2]), "v" (val32[3]), "r" ( adr )
 		: "v19", "v20", "v21", "v22" ); //, "memory" );
@@ -242,9 +242,9 @@ _gpu_mul_hi_u64(ulong x, ulong y)
 #ifdef __HCC__
 #define ASYNC_LOAD(dst0, dst1, adr)	{						\
 		asm volatile(										\
-			"global_load_dwordx2 %0, %2, off\n\t"			\
-			"global_load_dwordx2 %1, %2, off offset:8\n\t"	\
-			: "=v"(dst0), "=v" (dst1) : "r" (adr) ); }
+			"flat_load_dwordx2 %0, %2\n\t"			\
+			"flat_load_dwordx2 %1, %3 glc\n\t"	\
+			: "=v"(dst0), "=v" (dst1) : "r" (adr), "r"(adr+1) ); }
 #else
 #define ASYNC_LOAD(dst0, dst1, adr)	{								\
 		asm volatile( "prefetch.global.L1 [%0];" : : "l"(adr) );	\
@@ -255,7 +255,7 @@ _gpu_mul_hi_u64(ulong x, ulong y)
 // Only available for HCC.
 #define ASYNC_STORE(adr, src) {											\
 		uint32_t * const s32 = reinterpret_cast<uint32_t*>(&src);		\
-		asm volatile("global_store_dwordx4 %0, v[20:23], off"			\
+		asm volatile("flat_store_dwordx4 %0, v[20:23]"			\
 					 :													\
 					 : "r" (adr), "{v20}" (s32[0]), "{v21}" (s32[1]), "{v22}" (s32[2]), "{v23}" (s32[3]) \
 					 :  );}
@@ -411,6 +411,10 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			x64.x = same_adr ? a_stor.x : ldst.x;
 			WAIT_FOR(ldst.y, 1)
 			x64.y = same_adr ? a_stor.y : ldst.y;
+			// Gens before gfx900 need this RETIRE on top.
+#ifndef __HIP_ARCH_GFX900__
+			RETIRE(ldst.y)
+#endif
 		}
 	}
 /*
