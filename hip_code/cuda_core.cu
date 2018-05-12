@@ -106,14 +106,9 @@ template< typename T >
 __device__ __forceinline__ void storeGlobal128AsyncGlc( T* adr, T const & val ) {
 #ifdef __HCC__
 	uint32_t * const val32 = (uint32_t*) &val;
-	asm volatile ("v_mov_b32 v19, %0\n\t"
-				  "v_mov_b32 v20, %1\n\t"
-				  "v_mov_b32 v21, %2\n\t"
-				  "v_mov_b32 v22, %3\n\t"
-				  EMIT_STORE("%4, v[19:22]") " glc"
+	asm volatile (EMIT_STORE("%4, v[19:22]") " glc"
 				  :
-				  : "v" (val32[0]), "v" (val32[1]), "v" (val32[2]), "v" (val32[3]), "r" ( adr )
-				  : "v19", "v20", "v21", "v22" ); //, "memory" );
+				  : "{v19}" (val32[0]), "{v20}" (val32[1]), "{v21}" (val32[2]), "{v22}" (val32[3]), "r" ( adr ));
 #else
 	*adr = val;
 #endif
@@ -140,7 +135,7 @@ __global__ void cryptonight_core_gpu_phase1( int threads, int bfactor, int parti
 	uint32_t key[40];
 	uint4 text;
 
-	MEMCPY8( key, ctx_key1 + thread * 40, 20 );
+	memcpy( key, ctx_key1 + thread * 40, 160 );
 
 	if( partidx == 0 )
 	{
@@ -292,7 +287,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 
 			d_xored.y = fork_7;
 			ulonglong2 * adr2 = long_state + j0;
-			
+
 #ifdef __HCC__
 			ASYNC_STORE(adr2, d_xored);
 #else
@@ -302,8 +297,8 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 
 			// Manuall setting .wt here can be sliightly faster than doing a simple store.
 			asm volatile( "st.global.wt.v2.u64 [%0], {%1, %2};" : : "l"( adr2 ), "l"( d_xored.x ), "l"(d_xored.y) : "memory" );
-
 #endif
+
 			same_adr = j1 == j0;
 			uint64_t t1_64 = d[x].x;
 
@@ -393,8 +388,8 @@ __global__ void cryptonight_core_gpu_phase3( int threads, int bfactor, int parti
 
 	uint32_t key[40];
 	uint4 text;
-	MEMCPY8( key, d_ctx_key2 + thread * 40, 20 );
-	memcpy(&text, d_ctx_state + thread * 50 + sub + 16, 16);
+	memcpy( key, d_ctx_key2 + thread * 40, 160 );
+	memcpy( &text, d_ctx_state + thread * 50 + sub + 16, 16 );
 
 	__syncthreads( );
 	#pragma unroll
