@@ -30,7 +30,7 @@ To build for target AMD:
 ```sh
 mkdir build && cd build
 export HIP_PLATFORM=hcc
-cmake .. -DCUDA_COMPILER=/opt/rocm/bin/hipcc -DHIP_PLATFORM=hcc -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DHIP_ROOT_DIR=/opt/rocm/hip -DMICROHTTPD_REQUIRED=OFF`
+cmake .. -DCUDA_COMPILER=/opt/rocm/bin/hipcc -DHIP_PLATFORM=hcc -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DHIP_ROOT_DIR=/opt/rocm/hip -DMICROHTTPD_REQUIRED=OFF
 make
 ```
 
@@ -43,6 +43,7 @@ export HIP_PLATFORM=nvcc
 cmake .. -DCUDA_COMPILER=/opt/rocm/bin/hipcc -DHIP_PLATFORM=nvcc -DCUDA_ARCH=30 -DCUDA_PATH=/usr -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DHIP_ROOT_DIR=/opt/rocm/hip -DMICROHTTPD_REQUIRED=OFF
 make
 ```
+You may have to export `CUDA_PATH` into your shell environment so HIP can find it.
 
 ## Running / configuring
 
