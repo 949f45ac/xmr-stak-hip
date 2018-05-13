@@ -13,6 +13,7 @@ This miner, however, currently works only on Linux. It can run:
 The code is based on xmr-stak-nvidia, i.e. the original CUDA part of xmr-stak. I have ported it to [HIP](https://github.com/ROCm-Developer-Tools/HIP), which is a framework developed by AMD that allows writing GPU compute code that can be built for both Nvidia GPUs (where it will be cross-compiled via CUDA and hence run with barely any performance impact) and AMD GPUs (where it uses the new "ROCm" driver stack).
 
 If you aren't technically literate/interested, I would not recommend trying to use this miner. It is relatively complicated to set up, and for little gain. If the optimization turns out to be useful and stable, it can be incorporated into the [normal xmr-stak](https://github.com/fireice-uk/xmr-stak) anyway.
+(If you run only Nvidia cards, you may check out the pre-built binary I’ve put up in the "releases" section. The only GPU lib it requires to run is libcudart, so it’s pretty portable across Linux systems.)
 
 ## Build environment
 
@@ -87,7 +88,10 @@ Please note that I haven’t changed the donation address after forking from xmr
 If you enjoyed this work and want to drop me some crypto coins, please use:
 
 XMR: `45FbpewbfJf6wp7gkwAqtwNc7wqnpEeJdUH2QRgeLPhZ1Chhi2qs4sNQKJX4Ek2jm946zmyBYnH6SFVCdL5aMjqRHodYYsF`
+
 BTC: `181TVrHPjeVZuKdqEsz8n9maqFLJAzTLc`
+
+If you gave a star to this repository, I’d also be glad already. :)
 
 ## Further performance and efficiency tuning
 
