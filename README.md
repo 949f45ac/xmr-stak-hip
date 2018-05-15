@@ -50,11 +50,13 @@ You may have to export `CUDA_PATH` into your shell environment so HIP can find i
 
 Configuration is done CUDA-style with threads/blocks for both platforms.
 
-I.e. `threads * blocks * 2` must always be less than available GPU memory in MB, and `blocks` should be a multiple of CU count for optimal performance.
+I.e. `threads * blocks * 2` must always be at least 200 less than available GPU memory in MB, and `blocks` should be a multiple of CU count for optimal performance.
 
 As for threads:
 
-- On AMD (Vega) cards, set threads to 8 for maximal performance. **E.g. use threads=8 blocks=448 for maximal performance on Vega 56.** 16 threads (with half the blocks) can be worth a try as well.
+- On Polaris cards, 8 threads usually perform best. E.g. on **RX 470/570 (32 CU), try 8x228** if you have 4GB RAM.
+
+- On AMD (Vega) cards, you should probably use 16 threads. 8 threads can be a bit faster, but tend to cause more issues. So that’s either **16x224 or 8x448 on an 8GB Vega**.
 
 - **On Nvidia cards, please do not use your usual settings**, but rather set `threads` to at least 32 (possibly the sweet spot for all GeForce cards) and blocks accordingly to a lower value. E.g. best performance on a 1050 Ti is reached by `threads=32, blocks=48`.
 
@@ -99,7 +101,7 @@ Generally, the miner has pretty stable performance on Vega cards. It does not fl
 
 ### Using more than one process on AMD cards
 
-As you may know from the OpenCL miner, scheduling two workloads instead of a single one can bring extra performance. Unfortunately, the HIP/hcc backend seems to become confused when you simply configure the miner with e.g. two 8x224 lines. However, it mostly works when you start two seperate processes. E.g. you schedule a single 8x224 workload in the config, than simply start the miner twice, using this same config both times. It can take a few tries and some time to stabilize, but yields some extra percent, apparently.
+As you may know from the OpenCL miner, scheduling two workloads instead of a single one can bring extra performance. Unfortunately, the HIP/hcc backend seems to become confused when you simply configure the miner with e.g. two 8x224 lines. However, it mostly works when you start two seperate processes. E.g. on Vega, you schedule a single 8x224 workload in the config, than simply start the miner twice, using this same config both times. It can take a few tries and some time to stabilize, but yields some extra percent, apparently.
 
 ### Kernel driver tweak
 

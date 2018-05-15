@@ -79,15 +79,15 @@ int test_full_run() {
 
 	nvid_ctx ctx;
 	ctx.device_id = 0;
-	ctx.device_blocks = 4;
-	ctx.device_threads = threads / 4;
 	ctx.device_bfactor = 0;
 	ctx.device_bsleep = 0;
 
 	uint32_t rescount = 0;
 	uint32_t resnonce[10];
 
-
+	cuda_get_deviceinfo(&ctx);
+	ctx.device_blocks = ctx.device_mpcount;
+	ctx.device_threads = 16;
 	cryptonight_extra_cpu_init(&ctx);
 	cryptonight_extra_cpu_set_data(&ctx, inbuf, keccak_input);
 	cryptonight_extra_cpu_prepare(&ctx, start_nonce);

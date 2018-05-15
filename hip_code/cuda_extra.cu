@@ -229,16 +229,26 @@ extern "C" int cryptonight_extra_cpu_init(nvid_ctx* ctx)
 void set_grid_block(nvid_ctx* ctx, dim3 * grid, dim3 * block) {
 	uint32_t blocks = ctx->device_blocks;
 	uint32_t threads = ctx->device_threads;
-	int minblocks;
-#ifdef __HCC__
-	minblocks = 54;
-#else
-	minblocks = 6;
-#endif
-	while (blocks > minblocks) {
+	int mpcount = ctx->device_mpcount;
+
+#ifdef __HIP_PLATFORM_HCC__
+        // TODO calculate only once
+	int nexthalved = blocks / 2;
+	int minblocks = mpcount / 2;
+	while (threads < 128 && nexthalved >= minblocks && nexthalved % minblocks == 0) {
 		blocks /= 2;
 		threads *= 2;
+
+		nexthalved = blocks / 2;
 	}
+#else
+        // TODO optimize
+	uint32_t wsize = blocks * threads;
+
+	threads = 128;
+	blocks = ( wsize + threads - 1 ) / threads;
+#endif
+
 	*grid = dim3( blocks );
 	*block = dim3( threads );
 }
