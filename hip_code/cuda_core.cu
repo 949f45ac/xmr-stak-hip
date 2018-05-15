@@ -354,9 +354,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			WAIT_FOR(ldst.y, 1)
 			x64.y = same_adr ? a_stor.y : ldst.y;
 			// Gens before gfx900 need this RETIRE on top.
-#ifndef __HIP_ARCH_GFX900__
 			RETIRE(ldst.y)
-#endif
 		}
 	}
 /*
