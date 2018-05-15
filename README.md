@@ -61,7 +61,7 @@ As for threads:
 - **On Nvidia cards, please do not use your usual settings**, but rather set `threads` to at least 32 (possibly the sweet spot for all GeForce cards) and blocks accordingly to a lower value. E.g. best performance on a 1050 Ti is reached by `threads=32, blocks=48`.
 
 
-## Explanation of the core-algo optimization
+## Core-algo optimization brief summary
 
 In the core loop of the CryptoNight algorithm, execution speed is basically directly dependant on the speed of scratchpad loads.
    

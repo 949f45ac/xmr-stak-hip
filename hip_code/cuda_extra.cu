@@ -226,7 +226,7 @@ extern "C" int cryptonight_extra_cpu_init(nvid_ctx* ctx)
 	return 1;
 }
 
-void set_grid_block(nvid_ctx* ctx, dim3 * grid, dim3 * block) {
+void set_grid_block(nvid_ctx* ctx, dim3 * grid, dim3 * block, int maxthreads) {
 	uint32_t blocks = ctx->device_blocks;
 	uint32_t threads = ctx->device_threads;
 	int mpcount = ctx->device_mpcount;
@@ -234,8 +234,12 @@ void set_grid_block(nvid_ctx* ctx, dim3 * grid, dim3 * block) {
 #ifdef __HIP_PLATFORM_HCC__
         // TODO calculate only once
 	int nexthalved = blocks / 2;
-	int minblocks = mpcount / 2;
-	while (threads < 128 && nexthalved >= minblocks && nexthalved % minblocks == 0) {
+	int minblocks = mpcount;
+	while (minblocks % 4 == 0) {
+		minblocks /= 2;
+	}
+
+	while (threads < maxthreads && nexthalved >= minblocks && nexthalved % minblocks == 0) {
 		blocks /= 2;
 		threads *= 2;
 
@@ -248,7 +252,7 @@ void set_grid_block(nvid_ctx* ctx, dim3 * grid, dim3 * block) {
 	threads = 128;
 	blocks = ( wsize + threads - 1 ) / threads;
 #endif
-
+        //printf("T x B = %d x %d\n", threads, blocks);
 	*grid = dim3( blocks );
 	*block = dim3( threads );
 }
@@ -260,7 +264,7 @@ extern "C" void cryptonight_extra_cpu_prepare(nvid_ctx* ctx, uint32_t startNonce
 /*	dim3 grid( ( wsize + threadsperblock - 1 ) / threadsperblock );
 	dim3 block( threadsperblock );*/
 	dim3 grid, block;
-	set_grid_block(ctx, &grid, &block);
+	set_grid_block(ctx, &grid, &block, 128);
 
 	hipLaunchKernelGGL(cryptonight_extra_gpu_prepare, dim3(grid), dim3(block), 0, 0, wsize, ctx->d_input, ctx->inputlen, startNonce,
 		ctx->d_ctx_state, ctx->d_ctx_a, ctx->d_ctx_b, ctx->d_ctx_key1, ctx->d_ctx_key2);
@@ -272,7 +276,7 @@ extern "C" void cryptonight_extra_cpu_final(nvid_ctx* ctx, uint32_t startNonce, 
 {
 	uint32_t wsize = ctx->device_blocks * ctx->device_threads;
 	dim3 grid, block;
-	set_grid_block(ctx, &grid, &block);
+	set_grid_block(ctx, &grid, &block, 256);
 
 	hipMemset( ctx->d_result_nonce, 0xFF, 10 * sizeof (uint32_t ) );
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
