@@ -1,14 +1,14 @@
 ## This repo contains
 
-Proof of concept for a [~3% optimization](#explanation-of-the-core-algo-optimization) in the core CryptoNight algorithm. This optimization could theoretically be implemented on every GPU compute platform/framework.
+Fully functional miner that runs with a proof of concept for a [~3% optimization](#explanation-of-the-core-algo-optimization) in the core CryptoNight algorithm. This optimization could theoretically be implemented on every GPU compute platform/framework.
 
 This miner, however, currently works only on Linux. It can run:
 
-- Nvidia GeForce 10 series cards. Older series may work, but not experience any speedup.
-
 - AMD Vega cards – **Still slower than Windows**, but faster and more stable than the OpenCL kernels on Linux.
 
-- AMD Polaris series cards.
+- AMD RX 400/500 series cards. In some cases faster and more efficient, in others slower.
+
+- Nvidia GeForce 10 series cards. Older series may work, but not experience any speedup.
 
 The code is based on xmr-stak-nvidia, i.e. the original CUDA part of xmr-stak. I have ported it to [HIP](https://github.com/ROCm-Developer-Tools/HIP), which is a framework developed by AMD that allows writing GPU compute code that can be built for both Nvidia GPUs (where it will be cross-compiled via CUDA and hence run with barely any performance impact) and AMD GPUs (where it uses the new "ROCm" driver stack).
 
@@ -105,8 +105,10 @@ As you may know from the OpenCL miner, scheduling two workloads instead of a sin
 
 ### Kernel driver tweak
 
-ROCm comes with a special kernel driver that is built via dkms. I’ve discovered a small performance tweak here. In the file `/usr/src/rock-1.7.148-ubuntu/amd/amdgpu/amdgpu_amdkfd_gpuvm.c` change the following code:
-
+ROCm comes with a special kernel driver that is built via dkms. I’ve discovered a small performance tweak here.
+To apply it, first you need to find out where the source files of the currently installed dkms version are located: `dpkg-query -L rock-dkms`
+For rocm-1.8, the base path is `/usr/src/amdgpu-1.8-151`. In this case, `amdgpu` is the dkms name, `1.8-151` its version.
+Now navigate to the base directory and edit `amd/amdgpu/amdgpu_amdkfd_gpuvm.c` by changing the following code:
 
 ```c
 if (coherent)
@@ -127,11 +129,13 @@ else
 ```
 
 Then apply the changes:
+(For other ROCm versions, replace dkms name and version accordingly.)
 
 ```sh
-dkms uninstall "rock/1.7.148-ubuntu"
-rm -rf /var/lib/dkms/rock/*
-dkms install "rock/1.7.148-ubuntu" --force 
+dkms_id="amdgpu/1.8-151"
+dkms uninstall $dkms_id
+rm -rf /var/lib/dkms/amdgpu/*
+dkms install $dkms_id --force
 ```
 
 It will cause a different type of memory to be allocated for large chunks (like the scratchpad space we use for CryptoNight). Can increase hashrate by ~0.5%.
