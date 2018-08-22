@@ -94,12 +94,12 @@ __device__ __forceinline__ uint64_t cuda_mul128( uint64_t multiplier, uint64_t m
 #endif
 
 
-#ifdef __HIP_ARCH_GFX900__
-#define EMIT_LOAD(args) "global_load_dwordx2 " args ", off"
-#define EMIT_STORE(args) "global_store_dwordx4 " args ", off"
-#else
+#ifdef __HIP_ARCH_GFX803__
 #define EMIT_LOAD(args) "flat_load_dwordx2 " args
 #define EMIT_STORE(args) "flat_store_dwordx4 " args
+#else
+#define EMIT_LOAD(args) "global_load_dwordx2 " args ", off"
+#define EMIT_STORE(args) "global_store_dwordx4 " args ", off"
 #endif
 
 template< typename T >
@@ -241,10 +241,9 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 
 	ulonglong2 d[2];
 
-	ulonglong2 a;
-
-	memcpy(&a, ctx_a, sizeof(ulonglong2));
-	memcpy(d + 1, ctx_b, sizeof(ulonglong2));
+	// Do not do memcpy here: it somehow causes the main loop to buffer registers t_t
+	ulonglong2 a = *reinterpret_cast<ulonglong2*>(ctx_a);
+	d[1] = *reinterpret_cast<ulonglong2*>(ctx_b);
 	
 	j0 = ( ( a.x & 0x1FFFF0 ) >> 4 );
 	
