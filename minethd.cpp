@@ -300,7 +300,7 @@ void minethd::work_main()
 			uint64_t iStamp = time_point_cast<milliseconds>(high_resolution_clock::now()).time_since_epoch().count();
 			iHashCount.store(iCount, std::memory_order_relaxed);
 			iTimestamp.store(iStamp, std::memory_order_relaxed);
-			std::this_thread::yield();
+//			std::this_thread::yield();
 		}
 
 		consume_work();

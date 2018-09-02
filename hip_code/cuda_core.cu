@@ -114,11 +114,19 @@ __device__ __forceinline__ void storeGlobal128AsyncGlc( T* adr, T const & val ) 
 #endif
 }
 
+__device__ __forceinline__ void memc_(void * __restrict__ dst, void * __restrict__ src, size_t num16) {
+	ulonglong2 * lDst = reinterpret_cast<ulonglong2*>(dst);
+	ulonglong2 * lSrc = reinterpret_cast<ulonglong2*>(src);
+	for (int i = 0; i < num16; i++) {
+		lDst[i] = lSrc[i];
+	}
+}
+
 __global__ void cryptonight_core_gpu_phase1( int threads, int bfactor, int partidx, uint64_t * __restrict__ long_state_64, uint32_t * __restrict__ ctx_state, uint32_t * __restrict__ ctx_key1 )
 {
 	__shared__ uint32_t sharedMemory[1024];
 
-	cn_aes_gpu_init( sharedMemory );
+	cn_aes_gpu_init_s<128>( sharedMemory );
 	__syncthreads( );
 	uint4 * const long_state = reinterpret_cast<uint4*>(long_state_64);
 
@@ -136,6 +144,7 @@ __global__ void cryptonight_core_gpu_phase1( int threads, int bfactor, int parti
 	uint4 text;
 
 	memcpy( key, ctx_key1 + thread * 40, 160 );
+	//memc_( key, ctx_key1 + thread * 40, 10 );
 
 	if( partidx == 0 )
 	{
@@ -368,7 +377,7 @@ __global__ void cryptonight_core_gpu_phase3( int threads, int bfactor, int parti
 {
 	__shared__ uint32_t sharedMemory[1024];
 
-	cn_aes_gpu_init( sharedMemory );
+	cn_aes_gpu_init_s<128>( sharedMemory );
 	__syncthreads( );
 
 	int thread = ( hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x ) >> 3;
@@ -385,8 +394,8 @@ __global__ void cryptonight_core_gpu_phase3( int threads, int bfactor, int parti
 
 	uint32_t key[40];
 	uint4 text;
-	memcpy( key, d_ctx_key2 + thread * 40, 160 );
-	memcpy( &text, d_ctx_state + thread * 50 + sub + 16, 16 );
+	memc_( key, d_ctx_key2 + thread * 40, 10 );
+	text = *reinterpret_cast<uint4*>(d_ctx_state + thread * 50 + sub + 16);
 
 	__syncthreads( );
 	#pragma unroll

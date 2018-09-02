@@ -301,6 +301,31 @@ __device__ __forceinline__ static void cn_aes_pseudo_round_mut(const uint32_t * 
 
 __device__ __forceinline__ static void cn_aes_gpu_init(uint32_t *sharedMemory)
 {
-	for(int i = hipThreadIdx_x; i < 1024; i += hipBlockDim_x)
-		sharedMemory[i] = d_t_fn[i];
+	uint4 * sMem = reinterpret_cast<uint4*>(sharedMemory);
+	uint4 * dt4 =  reinterpret_cast<uint4*>(d_t_fn);
+	for(int i = hipThreadIdx_x; i < 256; i += hipBlockDim_x)
+		sMem[i] = dt4[i];
+}
+
+template<int DIM>
+__device__ __forceinline__ static void cn_aes_gpu_init_s(uint32_t *sharedMemory)
+{
+	uint4 * sMem = reinterpret_cast<uint4*>(sharedMemory);
+	uint4 * dt4 =  reinterpret_cast<uint4*>(d_t_fn);
+
+	int numCopies = 256 / DIM;
+
+	#pragma unroll
+	for(int i = hipThreadIdx_x * numCopies; i < (hipThreadIdx_x + 1) * numCopies; i += 1)
+		sMem[i] = dt4[i];
+}
+
+__device__ __forceinline__ static void cn_aes_gpu_init_128s(uint32_t *sharedMemory)
+{
+	uint4 * sMem = reinterpret_cast<uint4*>(sharedMemory);
+	uint4 * dt4 =  reinterpret_cast<uint4*>(d_t_fn);
+
+	int i = hipThreadIdx_x * 2;
+	sMem[i] = dt4[i];
+	sMem[i+1] = dt4[i+1];
 }
