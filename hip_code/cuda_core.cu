@@ -83,7 +83,8 @@ __device__ __forceinline__ uint64_t cuda_mul128( uint64_t multiplier, uint64_t m
 	uint32_t * const w = reinterpret_cast<uint32_t*const>(&x); \
 	asm volatile("v_mov_b32 %0, %2\n\tv_mov_b32 %1, %3" : "=v" (w[0]), "=v" (w[1]) : "v" (w[0]), "v" (w[1]) : "memory"); }
 
-#define WAIT_FOR(x, n) asm volatile("s_waitcnt vmcnt(" #n ")": : "v" (x) : "memory"); FENCE(x)
+#define WAIT_FOR(x, n) asm volatile("s_waitcnt vmcnt(" #n ")\n\t": : "v" (x) : "memory"); FENCE(x)
+#define PRIO(n) asm volatile ("s_setprio 0x" #n);
 #else
 #define WAIT_FOR(x, n) FENCE(x)
 #define RETIRE(x) x;
@@ -94,12 +95,12 @@ __device__ __forceinline__ uint64_t cuda_mul128( uint64_t multiplier, uint64_t m
 #endif
 
 
-#ifdef __HIP_ARCH_GFX803__
-#define EMIT_LOAD(args) "flat_load_dwordx2 " args
-#define EMIT_STORE(args) "flat_store_dwordx4 " args
-#else
+#if !__HIP_ARCH_GFX803__
 #define EMIT_LOAD(args) "global_load_dwordx2 " args ", off"
 #define EMIT_STORE(args) "global_store_dwordx4 " args ", off"
+#else
+#define EMIT_LOAD(args) "flat_load_dwordx2 " args
+#define EMIT_STORE(args) "flat_store_dwordx4 " args
 #endif
 
 template< typename T >
@@ -114,6 +115,23 @@ __device__ __forceinline__ void storeGlobal128AsyncGlc( T* adr, T const & val ) 
 #endif
 }
 
+template<int N>
+__device__ __forceinline__ void memc_(void * __restrict__ dst, void * __restrict__ src) {
+	ulonglong2 * lDst = reinterpret_cast<ulonglong2*>(dst);
+	ulonglong2 * lSrc = reinterpret_cast<ulonglong2*>(src);
+	#pragma unroll
+	for (int i = 0; i < N; i++) {
+		lDst[i] = lSrc[i];
+	}
+}
+
+// Number of threads per block to use in phase 1 and 3
+#define P13T 64
+#define ENABLE_LAUNCH_BOUNDS 1
+
+#if ENABLE_LAUNCH_BOUNDS
+__launch_bounds__( P13T )
+#endif
 __global__ void cryptonight_core_gpu_phase1( int threads, int bfactor, int partidx, uint64_t * __restrict__ long_state_64, uint32_t * __restrict__ ctx_state, uint32_t * __restrict__ ctx_key1 )
 {
 	__shared__ uint32_t sharedMemory[1024];
@@ -135,7 +153,8 @@ __global__ void cryptonight_core_gpu_phase1( int threads, int bfactor, int parti
 	uint32_t key[40];
 	uint4 text;
 
-	memcpy( key, ctx_key1 + thread * 40, 160 );
+	//memcpy( key, ctx_key1 + thread * 40, 160 );
+	memc_<10>( key, ctx_key1 + thread * 40);
 
 	if( partidx == 0 )
 	{
@@ -180,14 +199,21 @@ _gpu_mul_hi_u64(ulong x, ulong y)
     return x1*y1 + z2 + (z1 >> 32);
 }
 
+#if __HIP_ARCH_GFX900__
+#define MFLAGS " slc"
+#else
+#define MFLAGS ""
+#endif
 
 #ifdef __HCC__
 #define ASYNC_LOAD(dst0, dst1, adr)	{								\
 		asm volatile(												\
-			EMIT_LOAD("%0, %2") "\n\t"								\
-			EMIT_LOAD("%1, %3")										\
+			EMIT_LOAD("%0, %2") MFLAGS " \n\t"								\
+			EMIT_LOAD("%1, %3") MFLAGS " \n\t"						\
 			: "=v"(dst0), "=v" (dst1)								\
 			: "r" (adr), "r"(adr+1) ); }
+
+#define AL128(dst, adr) asm volatile("flat_load_dwordx4 %0, %1" : "=v"(dst) : "r"(adr));
 #else
 #define ASYNC_LOAD(dst0, dst1, adr)	{								\
 		asm volatile( "prefetch.global.L1 [%0];" : : "l"(adr) );	\
@@ -195,16 +221,16 @@ _gpu_mul_hi_u64(ulong x, ulong y)
 #endif
 
 // Only available for HCC.
-#define ASYNC_STORE(adr, src) {											\
+#define ASYNC_STORE(adr, src) {								\
 		uint32_t * const s32 = reinterpret_cast<uint32_t*>(&src);		\
-		asm volatile(EMIT_STORE("%0, v[20:23]")							\
-					 :													\
-					 : "r" (adr),										\
+		asm volatile(EMIT_STORE("%0, v[20:23]")	MFLAGS				\
+					 :						\
+					 : "r" (adr),					\
 					   "{v20}" (s32[0]), "{v21}" (s32[1]), "{v22}" (s32[2]), "{v23}" (s32[3])); }
 
 
 #ifdef __HCC__
-__launch_bounds__( 16 )
+__launch_bounds__( 8 )
 #else
 //__launch_bounds__( 64 )
 #endif
@@ -265,9 +291,11 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			j1 = ( ( d32[0] & 0x1FFFF0 ) >> 4 );
 
 			uint64_t * adr = reinterpret_cast<uint64_t*>(long_state + j1);
-			uint64_t ldst0, ldst1;
+//			uint64_t ldst0, ldst1;
+			ulonglong2 ldst_f;
 			
-			ASYNC_LOAD(ldst0, ldst1, adr);
+			ASYNC_LOAD(ldst_f.x, ldst_f.y, adr);
+			PRIO(2)
 			
 			d32[1] = a32[1]  ^ (t_fn0(x32[1] & 0xff) ^ t_fn1((x32[2] >> 8) & 0xff) ^ t_fn2((x32[3] >> 16) & 0xff) ^ t_fn3((x32[0] >> 24)));
 			d32[2] = a32[2]  ^ (t_fn0(x32[2] & 0xff) ^ t_fn1((x32[3] >> 8) & 0xff) ^ t_fn2((x32[0] >> 16) & 0xff) ^ t_fn3((x32[1] >> 24)));
@@ -294,21 +322,20 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			ldst0 = *adr;
 			ldst1 = *(adr+1);
 
-			// Manuall setting .wt here can be sliightly faster than doing a simple store.
+			// Manually setting .wt here can be sliightly faster than doing a simple store.
 			asm volatile( "st.global.wt.v2.u64 [%0], {%1, %2};" : : "l"( adr2 ), "l"( d_xored.x ), "l"(d_xored.y) : "memory" );
 #endif
 
 			same_adr = j1 == j0;
 			uint64_t t1_64 = d[x].x;
 
-			ulonglong2 y2 = d_xored;
-			y2.x *= same_adr;
-			y2.y *= same_adr;
-
-			
-			WAIT_FOR(ldst0, 2);
-			y2.x += (1-same_adr) * ldst0;
-			RETIRE(ldst0);
+				
+			WAIT_FOR(ldst_f.x, 1);
+			PRIO(3)
+			FENCE(ldst_f.y)
+			ulonglong2 y2;
+			y2.x = same_adr ? d_xored.x : ldst_f.x;
+			y2.y = same_adr ? d_xored.y : ldst_f.y;
 
 			a.x += UMUL64HI(t1_64, y2.x);
 
@@ -322,6 +349,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			ulonglong2 ldst;
 
 			ASYNC_LOAD(ldst.x, ldst.y, adr);
+			PRIO(1)
 			
 			FENCE(t1_64)
 			a.y += (t1_64 * y2.x);
@@ -334,13 +362,10 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			
 #ifdef __HCC__
 			ASYNC_STORE(long_state+j1, a_stor);
+//			PRIO(0)
 #else
 			long_state[j1] = a_stor;
 #endif
-			
-			WAIT_FOR(ldst1, 4)
-			y2.y += (1-same_adr) * ldst1;
-			RETIRE(ldst1)
 			same_adr = j0 == j1;
 
 #ifndef __HCC__
@@ -348,13 +373,15 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 #endif
 			a.y ^= y2.y;
 
-			WAIT_FOR(ldst.x, 2)
+			WAIT_FOR(ldst.x, 1)
+			PRIO(3)
+//			FENCE(ldst.y)
 			x64.x = same_adr ? a_stor.x : ldst.x;
-			WAIT_FOR(ldst.y, 1)
 			x64.y = same_adr ? a_stor.y : ldst.y;
-			// Gens before gfx900 need this RETIRE on top.
 			RETIRE(ldst.y)
 		}
+		// Voodoo
+//		if (i % 32 == 0) asm volatile("s_barrier" ::);
 	}
 /*
 	if ( bfactor > 0 )
@@ -364,6 +391,9 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 	}*/
 }
 
+#if ENABLE_LAUNCH_BOUNDS
+__launch_bounds__( P13T )
+#endif
 __global__ void cryptonight_core_gpu_phase3( int threads, int bfactor, int partidx, const uint64_t * __restrict__ long_state_64, uint32_t * __restrict__ d_ctx_state, uint32_t * __restrict__ d_ctx_key2 )
 {
 	__shared__ uint32_t sharedMemory[1024];
@@ -385,8 +415,9 @@ __global__ void cryptonight_core_gpu_phase3( int threads, int bfactor, int parti
 
 	uint32_t key[40];
 	uint4 text;
-	memcpy( key, d_ctx_key2 + thread * 40, 160 );
-	memcpy( &text, d_ctx_state + thread * 50 + sub + 16, 16 );
+	//memcpy( key, d_ctx_key2 + thread * 40, 160 );
+	memc_<10>( key, d_ctx_key2 + thread * 40 );
+	text = *reinterpret_cast<uint4*>(d_ctx_state + thread * 50 + sub + 16);
 
 	__syncthreads( );
 	#pragma unroll
@@ -402,16 +433,33 @@ __global__ void cryptonight_core_gpu_phase3( int threads, int bfactor, int parti
 		cn_aes_pseudo_round_mut( sharedMemory, (uint32_t*) &text, key );
 	}
 
-	memcpy(d_ctx_state + thread * 50 + sub + 16, &text, sizeof(uint4));
+	//memcpy(d_ctx_state + thread * 50 + sub + 16, &text, sizeof(uint4));
+	memc_<1>(d_ctx_state + thread * 50 + sub + 16, &text);
+	__syncthreads( );
 }
 
 extern "C" void cryptonight_core_cpu_hash(nvid_ctx* ctx, uint32_t nonce)
 {
 	dim3 grid( ctx->device_blocks );
+	dim3 grid_halved( ctx->device_blocks / 2 );
 	dim3 block( ctx->device_threads );
 	dim3 block2( ctx->device_threads * 2);
 	dim3 block8( ctx->device_threads << 3 );
+	dim3 block16( ctx->device_threads << 4 );
 
+	dim3 p1_3_grid((ctx->device_blocks * ctx->device_threads * 8) / P13T);
+	dim3 p1_3_block( P13T );
+#if 0
+	// Always use min. 64 threads in p1 and p3
+	// So when threads < 8, take threads * 16 and halve the blocks.
+	if (ctx->device_threads < 8) {
+		p1_3_block = block16;
+		p1_3_grid = grid_halved;
+	} else {
+		p1_3_block = block8;
+		p1_3_grid = grid;
+	}
+#endif
 	int partcount = 1 << ctx->device_bfactor;
 
 	/* bfactor for phase 1 and 3
@@ -427,7 +475,7 @@ extern "C" void cryptonight_core_cpu_hash(nvid_ctx* ctx, uint32_t nonce)
 
 	for ( int i = 0; i < partcountOneThree; i++ )
 	{
-		hipLaunchKernelGGL(cryptonight_core_gpu_phase1, dim3(grid), dim3(block8), 0, 0, ctx->device_blocks*ctx->device_threads,
+		hipLaunchKernelGGL(cryptonight_core_gpu_phase1, dim3(p1_3_grid), dim3(p1_3_block), 0, 0, ctx->device_blocks*ctx->device_threads,
 			bfactorOneThree, i,
 			ctx->d_long_state, ctx->d_ctx_state, ctx->d_ctx_key1);
 		exit_if_cudaerror( ctx->device_id, __FILE__, __LINE__ );
@@ -452,7 +500,7 @@ extern "C" void cryptonight_core_cpu_hash(nvid_ctx* ctx, uint32_t nonce)
 
 	for ( int i = 0; i < partcountOneThree; i++ )
 	{
-		hipLaunchKernelGGL(cryptonight_core_gpu_phase3, dim3(grid), dim3(block8), 0, 0, ctx->device_blocks*ctx->device_threads,
+		hipLaunchKernelGGL(cryptonight_core_gpu_phase3, dim3(p1_3_grid), dim3(p1_3_block), 0, 0, ctx->device_blocks*ctx->device_threads,
 			bfactorOneThree, i,
 			ctx->d_long_state,
 			ctx->d_ctx_state, ctx->d_ctx_key2);

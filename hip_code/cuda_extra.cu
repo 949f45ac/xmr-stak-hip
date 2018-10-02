@@ -138,12 +138,13 @@ __global__ void cryptonight_extra_gpu_final( int threads, uint64_t target, uint3
 
 	uint32_t* state32 = reinterpret_cast<uint32_t*>(state);
 
-#pragma unroll
+//#pragma unroll
 	for ( i = 0; i < 50; i++ )
 		state32[i] = ctx_state[i];
 
 	cn_keccakf2( state );
 
+	__syncthreads();
 	switch ( ( (uint8_t *) state )[0] & 0x03 )
 	{
 	case 0:
@@ -166,6 +167,7 @@ __global__ void cryptonight_extra_gpu_final( int threads, uint64_t target, uint3
 
 	// Note that comparison is equivalent to subtraction - we can't just compare 8 32-bit values
 	// and expect an accurate result for target > 32-bit without implementing carries
+	__syncthreads();
 
 	if ( hash[3] < target )
 	{
@@ -174,6 +176,7 @@ __global__ void cryptonight_extra_gpu_final( int threads, uint64_t target, uint3
 		if(idx < 10)
 			d_res_nonce[idx] = thread;
 	}
+	__syncthreads();
 }
 
 extern "C" void cryptonight_extra_cpu_set_data( nvid_ctx* ctx, const void *data, uint32_t len )
@@ -285,6 +288,7 @@ extern "C" void cryptonight_extra_cpu_final(nvid_ctx* ctx, uint32_t startNonce, 
 
 	hipLaunchKernelGGL(cryptonight_extra_gpu_final, dim3(grid), dim3(block), 0, 0, wsize, target, ctx->d_result_count, ctx->d_result_nonce, ctx->d_ctx_state);
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
+	//hipDeviceSynchronize();
 
 	hipMemcpy( rescount, ctx->d_result_count, sizeof (uint32_t ), hipMemcpyDeviceToHost );
 	exit_if_cudaerror(ctx->device_id, __FILE__, __LINE__ );
