@@ -272,9 +272,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 	d[1] = *reinterpret_cast<ulonglong2*>(ctx_b);
 	
 	j0 = ( ( a.x & 0x1FFFF0 ) >> 4 );
-	
-	ulonglong2 x64 = long_state[j0];
-	
+
 	__syncthreads();
 	#pragma unroll 2
 	for ( i = start; i < end; ++i )
@@ -282,6 +280,8 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 		#pragma unroll 2
 		for ( int x = 0; x < 2; ++x )
 		{
+
+			ulonglong2 x64 = long_state[j0];
 			uint32_t * const x32 = (uint32_t*) &x64;
 			uint32_t * const a32 = (uint32_t*) &a;
 
@@ -290,13 +290,6 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			d32[0] = a32[0] ^ (t_fn0(x32[0] & 0xff) ^ t_fn1((x32[1] >> 8) & 0xff) ^ t_fn2((x32[2] >> 16) & 0xff) ^ t_fn3((x32[3] >> 24)));
 			j1 = ( ( d32[0] & 0x1FFFF0 ) >> 4 );
 
-			uint64_t * adr = reinterpret_cast<uint64_t*>(long_state + j1);
-//			uint64_t ldst0, ldst1;
-			ulonglong2 ldst_f;
-			
-			ASYNC_LOAD(ldst_f.x, ldst_f.y, adr);
-			PRIO(2)
-			
 			d32[1] = a32[1]  ^ (t_fn0(x32[1] & 0xff) ^ t_fn1((x32[2] >> 8) & 0xff) ^ t_fn2((x32[3] >> 16) & 0xff) ^ t_fn3((x32[0] >> 24)));
 			d32[2] = a32[2]  ^ (t_fn0(x32[2] & 0xff) ^ t_fn1((x32[3] >> 8) & 0xff) ^ t_fn2((x32[0] >> 16) & 0xff) ^ t_fn3((x32[1] >> 24)));
 			d32[3] = a32[3]  ^ (t_fn0(x32[3] & 0xff) ^ t_fn1((x32[0] >> 8) & 0xff) ^ t_fn2((x32[1] >> 16) & 0xff) ^ t_fn3((x32[2] >> 24)));
@@ -313,72 +306,36 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			fork_7 ^= ((table >> index) & 0x3) << 28;
 
 			d_xored.y = fork_7;
-			ulonglong2 * adr2 = long_state + j0;
+			// BUGGED: long_state[j0] = d_xored;
+			ASYNC_STORE(long_state + j0, d_xored);
 
-#ifdef __HCC__
-			ASYNC_STORE(adr2, d_xored);
-#else
-			// This load is automatically vectorized by nvcc.
-			ldst0 = *adr;
-			ldst1 = *(adr+1);
+/*
+ * 2
+ */
 
-			// Manually setting .wt here can be sliightly faster than doing a simple store.
-			asm volatile( "st.global.wt.v2.u64 [%0], {%1, %2};" : : "l"( adr2 ), "l"( d_xored.x ), "l"(d_xored.y) : "memory" );
-#endif
 
-			same_adr = j1 == j0;
+			ulonglong2 y2 = long_state[j1];
 			uint64_t t1_64 = d[x].x;
-
-				
-			WAIT_FOR(ldst_f.x, 1);
-			PRIO(3)
-			FENCE(ldst_f.y)
-			ulonglong2 y2;
-			y2.x = same_adr ? d_xored.x : ldst_f.x;
-			y2.y = same_adr ? d_xored.y : ldst_f.y;
 
 			a.x += UMUL64HI(t1_64, y2.x);
 
 			ulonglong2 a_stor;
 			a_stor.x = a.x;
 
+///////
 			a.x ^= y2.x;
 			j0 = ( ( a.x & 0x1FFFF0 ) >> 4 );
-
-			adr = reinterpret_cast<uint64_t*>(long_state + j0);
-			ulonglong2 ldst;
-
-			ASYNC_LOAD(ldst.x, ldst.y, adr);
-			PRIO(1)
-			
-			FENCE(t1_64)
+//////
 			a.y += (t1_64 * y2.x);
-			
+
 			a_stor.y = a.y;
 
-			uint32_t *  a_stor32 = (uint32_t*) &a_stor;
+			uint32_t * a_stor32 = reinterpret_cast<uint32_t*>(&a_stor);
 			a_stor32[2] ^= tweak1_2[0];
 			a_stor32[3] ^= tweak1_2[1];
-			
-#ifdef __HCC__
-			ASYNC_STORE(long_state+j1, a_stor);
-//			PRIO(0)
-#else
+
 			long_state[j1] = a_stor;
-#endif
-			same_adr = j0 == j1;
-
-#ifndef __HCC__
-			ldst = long_state[j0];
-#endif
 			a.y ^= y2.y;
-
-			WAIT_FOR(ldst.x, 1)
-			PRIO(3)
-//			FENCE(ldst.y)
-			x64.x = same_adr ? a_stor.x : ldst.x;
-			x64.y = same_adr ? a_stor.y : ldst.y;
-			RETIRE(ldst.y)
 		}
 		// Voodoo
 //		if (i % 32 == 0) asm volatile("s_barrier" ::);
