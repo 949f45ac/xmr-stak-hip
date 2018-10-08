@@ -289,8 +289,8 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 
 			ulonglong2 x64 = long_state[j0];
 
-			uint4 d32;
-			EXTRACT_32(d32, d[x]);
+			uint4 d32 = *reinterpret_cast<uint4*>(d+x);
+			// EXTRACT_32(d32, d[x]);
 
 			uint32_t * x32 = reinterpret_cast<uint32_t*>(&x64);
 			uint32_t * a32 = reinterpret_cast<uint32_t*>(&a);
@@ -329,8 +329,8 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			// foo.x = ((uint64_t) d_xored.x) | (((uint64_t) d_xored.y) << 32);
 
 			// BUGGED:
-			long_state[j0] = d_xored;
-			// ASYNC_STORE(long_state + j0, foo);
+//			long_state[j0] = d_xored;
+			ASYNC_STORE(long_state + j0, d_xored);
 
 /*
  * 2
