@@ -306,28 +306,18 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 
 			ulonglong2 d_xored = d[0]; // ^d[1];
 			d_xored ^= d[1];
-			// d_xored.x ^= d[1].x;
-			// d_xored.y ^= d[1].y;
 
-			uint32_t fork_7 = d_xored.y; // ((uint64_t) d_xored.z) | (((uint64_t) d_xored.w) << 32);
+			uint32_t fork_7 = d_xored.y;
 			uint8_t xo = fork_7 >> 24;
 
 			const uint16_t table = 0x7531;
-			// uint index = ((d_xored.z >> 26) & 12) | ((d_xored.z >> 23) & 2);
-			// d_xored.z ^= ((table >> index) & 0x30U) << 24;
 
 			uint8_t index = (((xo >> 3) & 6) | (xo & 1)) << 1;
 			fork_7 ^= ((table >> index) & 0x3) << 28;
 
 			d_xored.y = (d_xored.y & 0xFFFFFFFF00000000) | fork_7;
 
-			// ulonglong2 foo;
-			// foo.y = fork_7;
-			// foo.x = ((uint64_t) d_xored.x) | (((uint64_t) d_xored.y) << 32);
-
-			// BUGGED:
-//			long_state[j0] = d_xored;
-			ASYNC_STORE(long_state + j0, d_xored);
+			long_state[j0] = d_xored;
 
 /*
  * 2
