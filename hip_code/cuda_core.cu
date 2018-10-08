@@ -171,7 +171,7 @@ __global__ void cryptonight_core_gpu_phase1( int threads, int bfactor, int parti
 	for ( int i = start; i < end; i += 32 )
 	{
 		cn_aes_pseudo_round_mut( sharedMemory, (uint32_t*) &text, key );
-		
+
 		int offset = ((thread << 19) + (sub + i) ) / 4;
 		storeGlobal128AsyncGlc(long_state + offset, text);
 	}
@@ -229,6 +229,12 @@ _gpu_mul_hi_u64(ulong x, ulong y)
 					   "{v20}" (s32[0]), "{v21}" (s32[1]), "{v22}" (s32[2]), "{v23}" (s32[3])); }
 
 
+#define EXTRACT_32(dst, src)					\
+	dst[0] = (uint32_t) src.x;					\
+	dst[1] = (uint32_t) (src.x >> 32);			\
+	dst[2] = (uint32_t) src.y;					\
+	dst[3] = (uint32_t) (src.y >> 32);
+
 #ifdef __HCC__
 __launch_bounds__( 8 )
 #else
@@ -248,7 +254,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 	const int thread = ( hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x );
 
 	int i;
-        uint32_t j0, j1;
+	uint32_t j0, j1;
 	bool same_adr;
 	const int batchsize = ITER >> ( 2 );
 	const int start = 0;
@@ -258,7 +264,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 	uint32_t * ctx_b = d_ctx_b + thread * (16/sizeof(uint32_t));
 
 	uint32_t * state = d_ctx_state + thread * 50;
-	
+
 	uint32_t tweak1_2[2];
 	tweak1_2[0] = (d_input[8] >> 24) | (d_input[9] << 8);
 	tweak1_2[0] ^= state[48];
@@ -270,7 +276,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 	// Do not do memcpy here: it somehow causes the main loop to buffer registers t_t
 	ulonglong2 a = *reinterpret_cast<ulonglong2*>(ctx_a);
 	d[1] = *reinterpret_cast<ulonglong2*>(ctx_b);
-	
+
 	j0 = ( ( a.x & 0x1FFFF0 ) >> 4 );
 
 	__syncthreads();
@@ -282,10 +288,14 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 		{
 
 			ulonglong2 x64 = long_state[j0];
-			uint32_t * const x32 = (uint32_t*) &x64;
-			uint32_t * const a32 = (uint32_t*) &a;
 
-			uint32_t * const d32 = (uint32_t*) (d+x);
+			uint32_t d32[4];
+			EXTRACT_32(d32, d[x]);
+
+			uint32_t * x32 = reinterpret_cast<uint32_t*>(&x64);
+			uint32_t * a32 = reinterpret_cast<uint32_t*>(&a);
+
+			// uint32_t * d32 = reinterpret_cast<uint32_t*>(d+x);
 
 			d32[0] = a32[0] ^ (t_fn0(x32[0] & 0xff) ^ t_fn1((x32[1] >> 8) & 0xff) ^ t_fn2((x32[2] >> 16) & 0xff) ^ t_fn3((x32[3] >> 24)));
 			j1 = ( ( d32[0] & 0x1FFFF0 ) >> 4 );
@@ -294,20 +304,32 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			d32[2] = a32[2]  ^ (t_fn0(x32[2] & 0xff) ^ t_fn1((x32[3] >> 8) & 0xff) ^ t_fn2((x32[0] >> 16) & 0xff) ^ t_fn3((x32[1] >> 24)));
 			d32[3] = a32[3]  ^ (t_fn0(x32[3] & 0xff) ^ t_fn1((x32[0] >> 8) & 0xff) ^ t_fn2((x32[1] >> 16) & 0xff) ^ t_fn3((x32[2] >> 24)));
 
+			d[x].x = d32[0] | ((uint64_t) d32[1] << 32);
+			d[x].y = d32[2] | ((uint64_t) d32[3] << 32);
+
 			ulonglong2 d_xored = d[0];
 			d_xored.x ^= d[1].x;
 			d_xored.y ^= d[1].y;
 
-			uint64_t fork_7 = d_xored.y;
+			uint64_t fork_7 = d_xored.y; // ((uint64_t) d_xored.z) | (((uint64_t) d_xored.w) << 32);
 			uint8_t xo = fork_7 >> 24;
 
 			const uint16_t table = 0x7531;
+			// uint index = ((d_xored.z >> 26) & 12) | ((d_xored.z >> 23) & 2);
+			// d_xored.z ^= ((table >> index) & 0x30U) << 24;
+
 			uint8_t index = (((xo >> 3) & 6) | (xo & 1)) << 1;
 			fork_7 ^= ((table >> index) & 0x3) << 28;
 
 			d_xored.y = fork_7;
-			// BUGGED: long_state[j0] = d_xored;
-			ASYNC_STORE(long_state + j0, d_xored);
+
+			// ulonglong2 foo;
+			// foo.y = fork_7;
+			// foo.x = ((uint64_t) d_xored.x) | (((uint64_t) d_xored.y) << 32);
+
+			// BUGGED:
+			long_state[j0] = d_xored;
+			// ASYNC_STORE(long_state + j0, foo);
 
 /*
  * 2
@@ -381,12 +403,12 @@ __global__ void cryptonight_core_gpu_phase3( int threads, int bfactor, int parti
 	for ( int i = start; i < end; i += 8 )
 	{
 		uint4 l = long_state[subRaw+i];
-		
+
 		text.x ^= l.x;
 		text.y ^= l.y;
 		text.z ^= l.z;
 		text.w ^= l.w;
-		
+
 		cn_aes_pseudo_round_mut( sharedMemory, (uint32_t*) &text, key );
 	}
 
