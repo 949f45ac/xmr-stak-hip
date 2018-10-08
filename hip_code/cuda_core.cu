@@ -307,11 +307,12 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			d[x].x = d32[0] | ((uint64_t) d32[1] << 32);
 			d[x].y = d32[2] | ((uint64_t) d32[3] << 32);
 
-			ulonglong2 d_xored = d[0];
-			d_xored.x ^= d[1].x;
-			d_xored.y ^= d[1].y;
+			ulonglong2 d_xored = d[0]; // ^d[1];
+			d_xored ^= d[1];
+			// d_xored.x ^= d[1].x;
+			// d_xored.y ^= d[1].y;
 
-			uint64_t fork_7 = d_xored.y; // ((uint64_t) d_xored.z) | (((uint64_t) d_xored.w) << 32);
+			uint32_t fork_7 = d_xored.y; // ((uint64_t) d_xored.z) | (((uint64_t) d_xored.w) << 32);
 			uint8_t xo = fork_7 >> 24;
 
 			const uint16_t table = 0x7531;
@@ -321,7 +322,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			uint8_t index = (((xo >> 3) & 6) | (xo & 1)) << 1;
 			fork_7 ^= ((table >> index) & 0x3) << 28;
 
-			d_xored.y = fork_7;
+			d_xored.y = (d_xored.y & 0xFFFFFFFF00000000) | fork_7;
 
 			// ulonglong2 foo;
 			// foo.y = fork_7;
