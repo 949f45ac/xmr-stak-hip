@@ -230,10 +230,10 @@ _gpu_mul_hi_u64(ulong x, ulong y)
 
 
 #define EXTRACT_32(dst, src)					\
-	dst[0] = (uint32_t) src.x;					\
-	dst[1] = (uint32_t) (src.x >> 32);			\
-	dst[2] = (uint32_t) src.y;					\
-	dst[3] = (uint32_t) (src.y >> 32);
+	dst.x = (uint32_t) src.x;					\
+	dst.y = (uint32_t) (src.x >> 32);			\
+	dst.z = (uint32_t) src.y;					\
+	dst.w = (uint32_t) (src.y >> 32);
 
 #ifdef __HCC__
 __launch_bounds__( 8 )
@@ -289,7 +289,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 
 			ulonglong2 x64 = long_state[j0];
 
-			uint32_t d32[4];
+			uint4 d32;
 			EXTRACT_32(d32, d[x]);
 
 			uint32_t * x32 = reinterpret_cast<uint32_t*>(&x64);
@@ -297,15 +297,15 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 
 			// uint32_t * d32 = reinterpret_cast<uint32_t*>(d+x);
 
-			d32[0] = a32[0] ^ (t_fn0(x32[0] & 0xff) ^ t_fn1((x32[1] >> 8) & 0xff) ^ t_fn2((x32[2] >> 16) & 0xff) ^ t_fn3((x32[3] >> 24)));
-			j1 = ( ( d32[0] & 0x1FFFF0 ) >> 4 );
+			d32.x = a32[0] ^ (t_fn0(x32[0] & 0xff) ^ t_fn1((x32[1] >> 8) & 0xff) ^ t_fn2((x32[2] >> 16) & 0xff) ^ t_fn3((x32[3] >> 24)));
+			j1 = ( ( d32.x & 0x1FFFF0 ) >> 4 );
 
-			d32[1] = a32[1]  ^ (t_fn0(x32[1] & 0xff) ^ t_fn1((x32[2] >> 8) & 0xff) ^ t_fn2((x32[3] >> 16) & 0xff) ^ t_fn3((x32[0] >> 24)));
-			d32[2] = a32[2]  ^ (t_fn0(x32[2] & 0xff) ^ t_fn1((x32[3] >> 8) & 0xff) ^ t_fn2((x32[0] >> 16) & 0xff) ^ t_fn3((x32[1] >> 24)));
-			d32[3] = a32[3]  ^ (t_fn0(x32[3] & 0xff) ^ t_fn1((x32[0] >> 8) & 0xff) ^ t_fn2((x32[1] >> 16) & 0xff) ^ t_fn3((x32[2] >> 24)));
+			d32.y = a32[1]  ^ (t_fn0(x32[1] & 0xff) ^ t_fn1((x32[2] >> 8) & 0xff) ^ t_fn2((x32[3] >> 16) & 0xff) ^ t_fn3((x32[0] >> 24)));
+			d32.z = a32[2]  ^ (t_fn0(x32[2] & 0xff) ^ t_fn1((x32[3] >> 8) & 0xff) ^ t_fn2((x32[0] >> 16) & 0xff) ^ t_fn3((x32[1] >> 24)));
+			d32.w = a32[3]  ^ (t_fn0(x32[3] & 0xff) ^ t_fn1((x32[0] >> 8) & 0xff) ^ t_fn2((x32[1] >> 16) & 0xff) ^ t_fn3((x32[2] >> 24)));
 
-			d[x].x = d32[0] | ((uint64_t) d32[1] << 32);
-			d[x].y = d32[2] | ((uint64_t) d32[3] << 32);
+			d[x].x = d32.x | ((uint64_t) d32.y << 32);
+			d[x].y = d32.z | ((uint64_t) d32.w << 32);
 
 			ulonglong2 d_xored = d[0]; // ^d[1];
 			d_xored ^= d[1];
