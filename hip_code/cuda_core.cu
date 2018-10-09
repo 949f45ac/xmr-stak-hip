@@ -271,11 +271,9 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 	tweak1_2[1] = startNonce + thread;
 	tweak1_2[1] ^= state[49];
 
-	ulonglong2 d[2];
-
 	// Do not do memcpy here: it somehow causes the main loop to buffer registers t_t
 	ulonglong2 a = *reinterpret_cast<ulonglong2*>(ctx_a);
-	d[1] = *reinterpret_cast<ulonglong2*>(ctx_b);
+	uint4 d = *reinterpret_cast<uint4*>(ctx_b);
 
 	j0 = ( ( a.x & 0x1FFFF0 ) >> 4 );
 
@@ -301,13 +299,10 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			c.z = a32[2]  ^ (t_fn0(x32[2] & 0xff) ^ t_fn1((x32[3] >> 8) & 0xff) ^ t_fn2((x32[0] >> 16) & 0xff) ^ t_fn3((x32[1] >> 24)));
 			c.w = a32[3]  ^ (t_fn0(x32[3] & 0xff) ^ t_fn1((x32[0] >> 8) & 0xff) ^ t_fn2((x32[1] >> 16) & 0xff) ^ t_fn3((x32[2] >> 24)));
 
-			d[x].x = c.x | ((uint64_t) c.y << 32);
-			d[x].y = c.z | ((uint64_t) c.w << 32);
+			uint4 d_xored = d ^ c;
+			d = c;
 
-			ulonglong2 d_xored = d[0]; // ^d[1];
-			d_xored ^= d[1];
-
-			uint32_t fork_7 = d_xored.y;
+			uint32_t fork_7 = d_xored.z;
 			uint8_t xo = fork_7 >> 24;
 
 			const uint16_t table = 0x7531;
@@ -315,9 +310,12 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 			uint8_t index = (((xo >> 3) & 6) | (xo & 1)) << 1;
 			fork_7 ^= ((table >> index) & 0x3) << 28;
 
-			d_xored.y = (d_xored.y & 0xFFFFFFFF00000000) | fork_7;
+			d_xored.z = fork_7;
 
-			long_state[j0] = d_xored;
+			{
+				uint4 * li4 = reinterpret_cast<uint4*>(long_state);
+				li4[j0] = d_xored;
+			}
 
 /*
  * 2
@@ -325,7 +323,7 @@ __global__ void cryptonight_core_gpu_phase2( int threads, int bfactor, int parti
 
 
 			ulonglong2 y2 = long_state[j1];
-			uint64_t t1_64 = d[x].x;
+			uint64_t t1_64 = reinterpret_cast<ulonglong2*>(&d)->x;
 
 			a.x += UMUL64HI(t1_64, y2.x);
 
