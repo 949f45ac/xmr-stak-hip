@@ -1,3 +1,7 @@
+# Development continues elsewhere
+
+https://github.com/949f45ac/xmrig-HIP
+
 ## This repo contains
 
 Fully functional miner that runs with a proof of concept for a [~3% optimization](#explanation-of-the-core-algo-optimization) in the core CryptoNight algorithm. This optimization could theoretically be implemented on every GPU compute platform/framework.
